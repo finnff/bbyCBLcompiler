@@ -1,0 +1,4 @@
+       IDENTIFICATION DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+         MOVE 1 TO X. (Statement starts in Area A - must be in Area B column 12+)

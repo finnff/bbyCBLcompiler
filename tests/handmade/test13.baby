@@ -1,0 +1,6 @@
+       IDENTIFICATION DIVISION.
+           PROGRAM-ID. LONGNAME.
+       PROCEDURE DIVISION.
+           DISPLAY "This is a very long
+      -       string concatenated with
+      -       continuation characters".

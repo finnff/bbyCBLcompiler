@@ -1,0 +1,7 @@
+       identification division.
+           program-id. test.
+       data division.
+         01 var1 picture is 99.
+       procedure division.
+           move 42 to var1.
+           stop run.
