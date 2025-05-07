@@ -32,10 +32,12 @@ class Colors:
 class LoggingErrorListener(ErrorListener):
     def __init__(self):
         self.has_error = False
+        self.error_messages = []
 
     def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
         self.has_error = True
-        return f"{Colors.RED}[ERROR] {recognizer.__class__.__name__} line {line}:{column} {msg}{Colors.RESET}"
+        error_msg = f"{Colors.RED}[ERROR] {recognizer.__class__.__name__} line {line}:{column} {msg}{Colors.RESET}"
+        self.error_messages.append(error_msg)
 
 
 def print_ast_tree(tree, parser, level=0):
@@ -72,6 +74,7 @@ def parse_single_file(filepath):
             "error": True,
             "message": f"Failed to read file: {str(e)}",
             "content": "",
+            "error_messages": [f"Failed to read file: {str(e)}"],
         }
 
     # Preprocess COBOL fixed-format lines (catch any indicator errors)
@@ -85,6 +88,7 @@ def parse_single_file(filepath):
             "error": True,
             "message": f"Preprocessing error: {str(e)}",
             "content": raw_text,
+            "error_messages": [f"Preprocessing error: {str(e)}"],
         }
 
     # Lexing and parsing setup
@@ -106,6 +110,9 @@ def parse_single_file(filepath):
             has_syntax_error = lex_errors.has_error or parse_errors.has_error
 
             if has_syntax_error:
+                # Collect all error messages
+                error_messages = lex_errors.error_messages + parse_errors.error_messages
+
                 return {
                     "filename": filename,
                     "filepath": filepath,
@@ -113,6 +120,7 @@ def parse_single_file(filepath):
                     "error": True,
                     "message": "Syntax error during parsing",
                     "content": raw_text,
+                    "error_messages": error_messages,
                 }
 
             # Successful parse
@@ -123,6 +131,7 @@ def parse_single_file(filepath):
                 "error": False,
                 "message": f"Successfully parsed {filename}",
                 "content": processed_text if ALWAYS_PRINT else "",
+                "error_messages": [],
             }
 
             # Add AST if requested
@@ -140,6 +149,7 @@ def parse_single_file(filepath):
                 "error": True,
                 "message": f"Parser exception: {str(e)}",
                 "content": raw_text if ALWAYS_PRINT else "",
+                "error_messages": [f"Parser exception: {str(e)}"],
             }
     else:
         # Non-parse mode: just return processed text
@@ -150,6 +160,7 @@ def parse_single_file(filepath):
             "error": False,
             "message": "Processed text (non-parse mode)",
             "content": processed_text,
+            "error_messages": [],
         }
 
 
@@ -295,9 +306,12 @@ def main():
                 else:
                     errors += 1
                     failed_tests.append(filename)
-                    print(
-                        f"\n{Colors.RED}[ERROR] === {result['message']}: {filename} === {Colors.RESET}"
-                    )
+
+                    # Print each detailed error message first
+                    for error_msg in result["error_messages"]:
+                        print(f"\n{error_msg}")
+
+                    print(f"\n=== Syntax error in: {filepath} ===")
 
                     # Always print file contents on error
                     if result["content"]:
