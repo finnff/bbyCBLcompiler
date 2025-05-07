@@ -10,7 +10,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from antlr4.tree.Tree import TerminalNode
 from preProcessor import preprocess_cobol
 
-MAX_TEST = 250  # Amount of test cases to run, 0 for all
+MAX_TEST = 500  # Amount of test cases to run, 0 for all
 PARSE = True  # Parse the data (instead of printing it)
 ALWAYS_PRINT = False  # Print Passed Test Contents and on errors
 SHOW_AST = False  # Print the abstract syntax tree for each file
@@ -204,15 +204,17 @@ def clear_failed_tests():
 def display_usage():
     """Display usage information"""
     print(f"\n{Colors.CYAN}Usage options:{Colors.RESET}")
-    print(f"  {Colors.CYAN}python script.py{Colors.RESET}              - Run all tests")
     print(
-        f"  {Colors.CYAN}python script.py -FAILED{Colors.RESET}      - Run only previously failed tests"
+        f"  {Colors.CYAN}python parserRunner.py{Colors.RESET}              - Run all tests"
     )
     print(
-        f"  {Colors.CYAN}python script.py -CLEAR{Colors.RESET}       - Clear the failed tests directory"
+        f"  {Colors.CYAN}python parserRunner.py -FAILED{Colors.RESET}      - Run only previously failed tests"
     )
     print(
-        f"  {Colors.CYAN}python script.py -WORKERS N{Colors.RESET}   - Use N worker processes (default: all CPU cores)"
+        f"  {Colors.CYAN}python parserRunner.py -CLEAR{Colors.RESET}       - Clear the failed tests directory"
+    )
+    print(
+        f"  {Colors.CYAN}python parserRunner.py -WORKERS N{Colors.RESET}   - Use N worker processes (default: all CPU cores)"
     )
 
 

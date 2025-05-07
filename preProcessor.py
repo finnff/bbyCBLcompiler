@@ -87,28 +87,26 @@ def preprocess_cobol(lines):
                 raise ValueError("Continuation without a preceding line")
 
             continuation_raw = (area_a + area_b).rstrip()
-            if continuation_raw == ".":
+            # recognise ".  " with leading spaces
+            if continuation_raw.strip() == ".":
                 current_line = current_line.rstrip() + " ."
-            elif continuation_raw.startswith("."):
-                continuation = "." + continuation_raw[1:].lstrip()
-            else:
-                continuation = continuation_raw.lstrip()
+                continue
 
-            if (
-                continuation_raw != "."
-            ):  # Skip the rest of the logic if we already handled the "." case
-                last_match = re.search(r"[A-Za-z]+$", current_line.rstrip())
-                first_match = re.match(r"[A-Za-z]+", continuation)
+            continuation = continuation_raw.lstrip()
 
-                join_without_space = (
-                    last_match
-                    and first_match
-                    and last_match.group(0).lower() not in ALL_KEYWORDS
-                    and first_match.group(0).lower() not in ALL_KEYWORDS
-                )
-
-                glue = "" if join_without_space else " "
-                current_line = current_line.rstrip() + glue + continuation
+            # guarantee a space before the continuation unless we *really* want to glue
+            last_match = re.search(r"[A-Za-z0-9]+$", current_line.rstrip())
+            first_match = re.match(r"[A-Za-z0-9]+", continuation)
+            join_without_space = (
+                last_match
+                and first_match
+                and last_match.group(0).isalpha()
+                and first_match.group(0).isalpha()
+                and last_match.group(0).lower() not in ALL_KEYWORDS
+                and first_match.group(0).lower() not in ALL_KEYWORDS
+            )
+            glue = "" if join_without_space else " "
+            current_line = current_line.rstrip() + glue + continuation
             continue
 
         raise ValueError(f"Invalid line indicator '{indicator}' at column 7")
@@ -140,7 +138,6 @@ def validate_area(line_text, start_col, in_proc_div):
             text.strip().endswith(".")
             and " " not in text.strip()
             and not text.strip().startswith("END-")
-            and text.strip() != "STOP."
         ):
             if start_col != 7:
                 raise ValueError(

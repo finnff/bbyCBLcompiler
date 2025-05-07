@@ -22,17 +22,18 @@ identificationClause
     | BASE         DOT identifier    DOT                  
     | COPY         copySource (REPLACING replacePair+)? DOT?
     | DESCRIPTION  DOT identifier    DOT              // simple identifier for DESCRIPTION
-    | (IDENTIFIER | ANY_DATE | ANY_DATE_UNDERSCORE) DOT (DATE | DATE_UNDERSCORE | identifier) DOT
-    | (IDENTIFIER | ANY_DATE | ANY_DATE_UNDERSCORE) DOT                    // support simple free-form clauses
-    | (IDENTIFIER | DATE | ANY_DATE) DOT
+    | simpleId DOT (DATE | DATE_UNDERSCORE | identifier)? DOT   // NEW – covers "ELSE." "LIKE." …
     ;
 
 /* DATA DIVISION */
 dataDivision
-    : DATA_DIVISION dataEntry*
+    : DATA_DIVISION (dataEntry | dataCopyStmt)*
     ;
 dataEntry
     : levelNumber identifier (pictureClause | likeClause)? occursClause? DOT
+    ;
+dataCopyStmt
+    : COPY copySource (REPLACING replacePair+)? DOT
     ;
 levelNumber
     : NUMBER
@@ -46,12 +47,17 @@ picturePattern
     : pictureElement+
     ;
 pictureElement
-    : (NUMBER | IDENTIFIER) (LPAREN NUMBER RPAREN)?   // old form
-    | LPAREN NUMBER RPAREN                            // NEW alt
+    : (NUMBER
+      | IDENTIFIER
+      | PROGRAM_ID | AUTHOR | DATE_WRITTEN | STOP
+      | DATE | DATE_UNDERSCORE | ANY_DATE | ANY_DATE_UNDERSCORE
+      | MINUS | PLUS    
+      ) (LPAREN NUMBER RPAREN)?   // old form
+    | LPAREN (NUMBER | IDENTIFIER) RPAREN   // 9(I) as in test 195684
     ;
 
 likeClause
-    : LIKE identifierSegment
+    : LIKE identifierSegment (OF identifierSegment)* // 0‑N "OF …"
     ;
 occursClause
     : OCCURS NUMBER (TIMES)?                           // support optional TIMES
@@ -97,15 +103,18 @@ identifier
     | simpleId                       # single
     ;
 
+
 simpleId
     : IDENTIFIER
-    | PROGRAM_ID | AUTHOR | DATE_WRITTEN
+    | DESCRIPTION            
+    | PROGRAM_ID | AUTHOR | DATE_WRITTEN | DATE | DATE_UNDERSCORE
     | ANY_DATE | ANY_DATE_UNDERSCORE
-    | HIGH_VALUES | LOW_VALUES
-    | SPACE       | SPACES          
+    | HIGH_VALUES | LOW_VALUES | SPACE | SPACES
     | BASE | TRUE | FALSE | END | ADD | MOVE | TO | THEN | ELSE
-    | DISPLAY | OF | BY | COPY | VARYING
+    | INSTALLATION | SECURITY | DATE_COMPILED
+    | DISPLAY | OF | BY | COPY | VARYING | STOP | LIKE
     ;
+
 
 evalSubject
     : exprList
@@ -116,38 +125,56 @@ evalSubject
 /* Expressions and conditions */
 acceptStmt       : ACCEPT exprList?                                        ;
 addStmt          : ADD exprList TO exprList givingClause*                 ; // support multiple GIVING
-alterStmt        : ALTER IDENTIFIER TO PROCEED TO IDENTIFIER             ; // use IDENTIFIER
+alterStmt        : ALTER identifier TO PROCEED TO identifier             ; // use identifier instead of IDENTIFIER
 callStmt         : CALL expr (USING usingClause)?                           ;
 copySource       
     : STRING
     | simpleId                ; // now covers DISPLAY, COPY, etc.
-copyStmt         : COPY copySource (REPLACING replacePair+)?     ;
+copyStmt         : COPY copySource (REPLACING replacePair+)? identifier?    ;
 replacePair      : replaceBlock BY replaceBlock                          ;   // ===FOO=== BY ===BAR===
-replaceBlock     : TRIPLE_EQUAL ( . )+? TRIPLE_EQUAL                     ;   // wildcard tokens until next "==="
+replaceBlock     : equalDelim ( . )+? equalDelim                     ;   // wildcard tokens until next "===" or "=="
+
+equalDelim
+    : TRIPLE_EQUAL
+    | DOUBLE_EQUAL
+    ;
 displayItem      : expr delimiterSpec?                                   ;
 delimiterSpec    
     : DELIMITED_BY valueSpec
     | DELIMITED BY valueSpec                                             ;
 valueSpec        : expr | SIZE | SPACE                                   ;
-displayStmt      : DISPLAY displayItem+ (WITH_NO_ADVANCING | WITH NO ADVANCING)?;
-divideStmt       : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)? ; // support multiple GIVING
+displayStmt      : DISPLAY displayItem+ // 1‑N items
+                    (WITH_NO_ADVANCING | WITH NO ADVANCING)? // optional flag
+                    displayItem* // more items allowed;
+;
+divideStmt       : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)?                  ; // support multiple GIVING
 evaluateStmt     : EVALUATE evalSubject? (ALSO evalSubject)* whenClause+ (END_EVALUATE | END identifier?) ;
 givingClause     : GIVING exprList                                       ; // separate GIVING clause
-gotoStmt         : GO TO expr                                            ; // use expr for GO TO
+gotoStmt         : GO TO exprList                                        ;
 ifStmt           : IF condition THEN statement+ (ELSE statement+)? (END_IF | END)? ;
-loopStmt         : LOOP varyingClause? statement* whileClause? statement* untilClause? statement* END  ;  // flexible LOOP syntax
+loopStmt         : LOOP (loopControl | statement)* END identifier?  ;  // fully inter-leaved with optional identifier
+
+loopControl
+    : varyingClause
+    | whileClause
+    | untilClause
+    ;
 moveStmt         : MOVE exprList TO exprList                             ;
 multiplyStmt     : MULTIPLY exprList BY exprList givingClause*            ; // support multiple GIVING
-nextSentenceStmt : NEXT_SENTENCE                                         ;
-performStmt      : PERFORM identifier (THROUGH identifier)? (expr TIMES)?   | PERFORM exprList TIMES   ;   // THROUGH … [n] TIMES
+nextSentenceStmt : NEXT_SENTENCE identifier? ;
+performStmt      : PERFORM expr (THROUGH expr)? (expr TIMES)?   | PERFORM exprList TIMES   ;   // THROUGH … [n] TIMES
 signalStmt
-    : SIGNAL OFF ON ERROR                                       # signalDisable
-    | SIGNAL expr (ON ERROR)?                                   # signalEnable
+    : SIGNAL OFF ON ERROR identifier?               # signalDisable
+    | SIGNAL expr (ON ERROR identifier?)?           # signalEnable
     ;
-stopStmt         : STOP (RUN)?                                           ;
-subtractStmt     : SUBTRACT exprList FROM exprList givingClause*          ; // support multiple GIVING
+stopStmt         : STOP (RUN | identifier)?                              ;   // RUN   | paragraph‑name
+subtractStmt     : SUBTRACT exprList FROM exprList givingClause*         ;   // support multiple GIVING
 untilClause      : UNTIL condition                                       ;
-varyingClause    : VARYING (IDENTIFIER)? (FROM expr)? (TO expr)? (BY expr)?  ; // use optional IDENTIFIER for VARYING
+varyingClause
+    : VARYING (qualifiedId | identifierSegment)?
+      (FROM expr)? (TO expr)? (BY expr)? ;
+
+
 varyingStmt      
     : varyingClause                     // full form
     | VARYING                          // single keyword (old tests)
@@ -191,9 +218,10 @@ expr
     | identifierSegment        # IdExpr
     ;
 literal
-    : FLOAT                                        # FloatLiteral
-    | NUMBER                                       # IntLiteral
-    | STRING                                       # StringLiteral
+    : FLOAT
+    | NUMBER
+    | STRING
+    | DATE | DATE_UNDERSCORE | ANY_DATE | ANY_DATE_UNDERSCORE
     ;
 
 /* =====================
@@ -362,6 +390,7 @@ GE            : '>=' ;
 LT            : '<' ;
 GT            : '>' ;
 TRIPLE_EQUAL  : '===' ;                                   // add TRIPLE_EQUAL for COPY REPLACING
+DOUBLE_EQUAL  : '==' ;                                    // add DOUBLE_EQUAL for COPY REPLACING
 
 /* Identifiers & literals */
 STRING

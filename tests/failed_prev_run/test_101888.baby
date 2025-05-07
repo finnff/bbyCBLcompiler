@@ -1,0 +1,25 @@
+       IDENTIFICATION DIVISION.
+           PROGRAM-ID. GAP02.
+           BABYCOBOL_TEST_CASE. GO_TO_ALTER_PERFORM.
+           DESCRIPTION. ALTER_A_GO_TO_FROM_JUMP_WITHIN_RANGE_TO_JUMP_OUT
+      -    SIDE_RANGE.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY ":" WITH NO ADVANCING.
+           PERFORM A THROUGH C.
+           DISPLAY ";" WITH NO ADVANCING.
+       AGAIN.
+           ALTER PATH TO PROCEED TO ALT-FIN.
+           PERFORM A THROUGH C.
+           DISPLAY "!".
+       FINISH.
+           STOP . A.
+           DISPLAY "A" WITH NO ADVANCING.
+       PATH.
+           GO TO C.
+       B.
+           DISPLAY "B" WITH NO ADVANCING.
+       C.
+           DIVIDE 6 INTO 4 3 GIVING X.
+       ALT-FIN.
+           DISPLAY "-" WITH NO ADVANCING.

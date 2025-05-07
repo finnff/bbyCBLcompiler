@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+           PROGRAM-ID. TEST.
+       DATA DIVISION.
+                                             99 FIELD PICTURE IS S999V99
+      -.
+       PROCEDURE DIVISION.
+           MOVE LOW-VALUES TO FIELD.
