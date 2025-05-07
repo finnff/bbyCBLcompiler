@@ -1,4 +1,6 @@
 import os
+import sys
+import shutil
 from antlr4 import FileStream, CommonTokenStream, InputStream
 from parser.bbyCBLLexer import bbyCBLLexer
 from parser.bbyCBLParser import bbyCBLParser
@@ -11,6 +13,7 @@ PARSE = True  # Parse the data (instead of printing it)
 ALWAYS_PRINT = False  # Print Passed Test Contents and on errors
 SHOW_AST = False  # Print the abstract syntax tree for each file
 TEST_DIR = "./tests/recombined_formatted/"  # Path to .baby test files
+FAILED_DIR = "./tests/failed_prev_run/"  # Directory to store failed tests
 
 
 # ANSI color codes
@@ -131,8 +134,77 @@ def parse_file(filepath, test_index, total_tests):
         return False, False
 
 
+def save_failed_tests(failed_tests):
+    """Copy failed test files to the failed tests directory"""
+    if not failed_tests:
+        return
+
+    # Create the directory if it doesn't exist
+    os.makedirs(FAILED_DIR, exist_ok=True)
+
+    # Skip copying if we're already running from the failed tests directory
+    if TEST_DIR == FAILED_DIR:
+        print(
+            f"\n{Colors.YELLOW}Already running from failed tests directory. Skipping copy.{Colors.RESET}"
+        )
+        return
+
+    for filename in failed_tests:
+        src_path = os.path.join(TEST_DIR, filename)
+        dst_path = os.path.join(FAILED_DIR, filename)
+        shutil.copy2(src_path, dst_path)
+
+    print(f"\n{Colors.YELLOW}Failed tests copied to: {FAILED_DIR}{Colors.RESET}")
+
+
+def clear_failed_tests():
+    """Clear the failed tests directory"""
+    if os.path.exists(FAILED_DIR):
+        for file in os.listdir(FAILED_DIR):
+            file_path = os.path.join(FAILED_DIR, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        print(
+            f"{Colors.YELLOW}Cleared previous failed tests directory: {FAILED_DIR}{Colors.RESET}"
+        )
+    else:
+        print(f"{Colors.YELLOW}No failed tests directory found.{Colors.RESET}")
+
+
+def display_usage():
+    """Display usage information"""
+    print(f"\n{Colors.CYAN}Usage options:{Colors.RESET}")
+    print(f"  {Colors.CYAN}python script.py{Colors.RESET}              - Run all tests")
+    print(
+        f"  {Colors.CYAN}python script.py -FAILED{Colors.RESET}      - Run only previously failed tests"
+    )
+    print(
+        f"  {Colors.CYAN}python script.py -CLEAR{Colors.RESET}       - Clear the failed tests directory"
+    )
+
+
 def main():
-    global MAX_TEST
+    global MAX_TEST, TEST_DIR
+
+    # Process command line arguments
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "-FAILED":
+            # Run only previously failed tests
+            if os.path.exists(FAILED_DIR) and os.listdir(FAILED_DIR):
+                TEST_DIR = FAILED_DIR
+                print(
+                    f"{Colors.YELLOW}Running only previously failed tests from: {FAILED_DIR}{Colors.RESET}"
+                )
+            else:
+                print(
+                    f"{Colors.YELLOW}No previous failed tests found. Running all tests.{Colors.RESET}"
+                )
+        elif sys.argv[1] == "-CLEAR":
+            # Clear the failed tests directory
+            clear_failed_tests()
+            return
+
+    failed_tests = []
     test_files = sorted([f for f in os.listdir(TEST_DIR) if f.endswith(".baby")])
     total = len(test_files)
     MAX = MAX_TEST if 0 < MAX_TEST <= total else total
@@ -147,10 +219,18 @@ def main():
             passed += 1
         if err:
             errors += 1
+            failed_tests.append(filename)
 
     print(f"\n\n\n{Colors.YELLOW}Total tests ran: {ran}{Colors.RESET}")
     print(f"{Colors.GREEN}Tests passed: {passed}{Colors.RESET}")
     print(f"{Colors.RED}Syntax errors: {errors}{Colors.RESET}")
+    if errors > 0:
+        print(f"{Colors.RED}Failed tests: \n {' '.join(failed_tests)}{Colors.RESET}")
+        # Save failed tests for future runs
+        save_failed_tests(failed_tests)
+
+    # Display command options if there are failed tests or always
+    display_usage()
 
 
 if __name__ == "__main__":
