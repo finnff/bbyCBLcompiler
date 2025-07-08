@@ -1,0 +1,5 @@
+maxtest: 10000
+testdir: "../tests/recombined_formatted/"
+faileddir: "../tests/failed/"
+fileext: ".baby"
+runmode: "parallel"
