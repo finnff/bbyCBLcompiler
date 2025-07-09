@@ -49,7 +49,7 @@ var testCmd = &cobra.Command{
 	Short: "Run all tests",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Running all tests...")
-		runTests(cfg.TestDir)
+		runTests(cfg.TestDir, false)
 	},
 }
 
@@ -58,7 +58,7 @@ var failedCmd = &cobra.Command{
 	Short: "Run only previously failed tests",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Running failed tests...")
-		runTests(cfg.FailedDir)
+		runTests(cfg.FailedDir, true)
 	},
 }
 
@@ -149,7 +149,7 @@ func main() {
 }
 
 // runTests orchestrates the test execution based on the provided directory.
-func runTests(dir string) {
+func runTests(dir string, isFailedRun bool) {
 	// Create the directory if it doesn't exist
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		os.MkdirAll(dir, os.ModePerm)
@@ -175,9 +175,9 @@ func runTests(dir string) {
 
 	// Run different approaches based on command line args
 	if cfg.RunMode == "sequential" {
-		runSequential(files)
+		runSequential(files, isFailedRun)
 	} else {
-		runParallel(files)
+		runParallel(files, isFailedRun)
 	}
 }
 

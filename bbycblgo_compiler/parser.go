@@ -28,10 +28,12 @@ const (
 // ParseResult represents the outcome of parsing a single file.
 // It includes the filename, success status, any error messages, and the duration of the parsing operation.
 type ParseResult struct {
-	Filename string
-	Success  bool
-	Error    string
-	Duration time.Duration
+	Filename          string
+	Success           bool
+	Error             string
+	Duration          time.Duration
+	OriginalContent   string
+	PreprocessedContent string
 }
 
 // CustomErrorListener implements the antlr.ErrorListener interface.
@@ -111,9 +113,11 @@ func parseFileCobol(filepath string) ParseResult {
 		result.Duration = time.Since(start)
 		return result
 	}
+	result.OriginalContent = strings.Join(lines, "\n")
 
 	// Preprocess the COBOL source code.
 	processedText := preprocessCobolAdvanced(lines)
+	result.PreprocessedContent = processedText
 
 	// Create ANTLR input stream from the preprocessed text.
 	input := antlr.NewInputStream(processedText)
@@ -186,7 +190,7 @@ func getTestFiles(dir string) ([]string, error) {
 
 // runSequential processes a list of files sequentially.
 // It parses each file one by one and prints the result.
-func runSequential(files []string) {
+func runSequential(files []string, isFailedRun bool) {
 	fmt.Printf("Processing %d files sequentially\n", len(files))
 
 	start := time.Now()
@@ -206,6 +210,10 @@ func runSequential(files []string) {
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, i+1, len(files), result.Filename, result.Error)
 			// Copy failed test files to the configured FailedDir.
 			copyFailedTest(file)
+			if isFailedRun {
+				fmt.Printf("\n%s--- Original Content ---%s\n%s\n%s------------------------%s\n", ColorCyan, ColorReset, result.OriginalContent, ColorCyan, ColorReset)
+				fmt.Printf("\n%s--- Preprocessed Content ---%s\n%s\n%s----------------------------%s\n", ColorCyan, ColorReset, result.PreprocessedContent, ColorCyan, ColorReset)
+			}
 		}
 	}
 
@@ -222,7 +230,7 @@ func runSequential(files []string) {
 
 // runParallel processes a list of files concurrently using goroutines.
 // It distributes parsing tasks among available CPU cores and collects results.
-func runParallel(files []string) {
+func runParallel(files []string, isFailedRun bool) {
 	numWorkers := runtime.NumCPU()
 	fmt.Printf("Processing %d files with %d goroutines\n", len(files), numWorkers)
 
@@ -277,6 +285,14 @@ func runParallel(files []string) {
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, processed, len(files), result.Filename, result.Error)
 			// Copy failed test files to the configured FailedDir.
 			copyFailedTest(result.Filename)
+			if isFailedRun {
+				fmt.Printf("\n%s--- Original Content ---%s\n%s\n%s------------------------%s\n", ColorCyan, ColorReset, result.OriginalContent, ColorCyan, ColorReset)
+				fmt.Printf("\n%s--- Preprocessed Content ---%s\n%s\n%s----------------------------%s\n", ColorCyan, ColorReset, result.PreprocessedContent, ColorCyan, ColorReset)
+			}
+			if isFailedRun {
+				fmt.Printf("\n%s--- Original Content ---%s\n%s\n%s------------------------%s\n", ColorCyan, ColorReset, result.OriginalContent, ColorCyan, ColorReset)
+				fmt.Printf("\n%s--- Preprocessed Content ---%s\n%s\n%s----------------------------%s\n", ColorCyan, ColorReset, result.PreprocessedContent, ColorCyan, ColorReset)
+			}
 		}
 	}
 
