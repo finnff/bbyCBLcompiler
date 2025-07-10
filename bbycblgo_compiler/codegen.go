@@ -12,12 +12,13 @@ import (
 // CodeGenerator holds the state for LLVM IR generation.
 type CodeGenerator struct {
 	*parser.BasebbyCBLVisitor
-	irBuilder      strings.Builder
+	globalBuilder  strings.Builder
+	mainBuilder    strings.Builder
 	symbolTable    *SymbolTable
 	errors         []SemanticError
 	strCounter     int
+	tempRegCounter int
 	verbose        bool
-	values         map[string]string
 	sourceFilename string
 }
 
@@ -28,8 +29,8 @@ func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename str
 		symbolTable:       symbolTable,
 		errors:            []SemanticError{},
 		strCounter:        0,
+		tempRegCounter:    0,
 		verbose:           verbose,
-		values:            make(map[string]string),
 		sourceFilename:    sourceFilename,
 	}
 }
@@ -40,17 +41,21 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 		return "", []SemanticError{}
 	}
 	codegen := NewCodeGenerator(symbolTable, verbose, sourceFilename)
-	// Basic structure for a .ll file
+	var finalIR strings.Builder
+
 	moduleID := strings.TrimSuffix(filepath.Base(sourceFilename), filepath.Ext(sourceFilename))
-	codegen.irBuilder.WriteString(fmt.Sprintf("; ModuleID = '%s'\n", moduleID))
-	codegen.irBuilder.WriteString(fmt.Sprintf("source_filename = \"%s\"\n\n", sourceFilename))
+	finalIR.WriteString(fmt.Sprintf("; ModuleID = '%s'\n", moduleID))
+	finalIR.WriteString(fmt.Sprintf("source_filename = \"%s\"\n\n", sourceFilename))
 
 	codegen.Visit(tree)
 
+	finalIR.WriteString(codegen.globalBuilder.String())
+	finalIR.WriteString(codegen.mainBuilder.String())
+
 	if codegen.verbose {
-		fmt.Println(codegen.irBuilder.String())
+		fmt.Println(finalIR.String())
 	}
-	return codegen.irBuilder.String(), codegen.errors
+	return finalIR.String(), codegen.errors
 }
 
 func (c *CodeGenerator) addError(msg string, line int) {
@@ -87,7 +92,10 @@ func (c *CodeGenerator) VisitParagraph(ctx *parser.ParagraphContext) interface{}
 	if c.verbose {
 		fmt.Println("Visiting Paragraph")
 	}
-	return c.VisitChildren(ctx)
+	for _, sentence := range ctx.AllSentence() {
+		c.Visit(sentence)
+	}
+	return nil
 }
 
 func (c *CodeGenerator) VisitSentence(ctx *parser.SentenceContext) interface{} {
@@ -102,11 +110,11 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 		fmt.Println("Visiting Data Division")
 	}
 	for _, dataEntry := range ctx.AllDataEntry() {
-		if field, ok := c.symbolTable.rootScope.fields[dataEntry.Identifier().GetText()]; ok {
+		if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(dataEntry.Identifier().GetText())]; ok {
 			if field.picture.isNumeric {
-				c.irBuilder.WriteString(fmt.Sprintf("@%s = common global i32 0, align 4\n", field.name))
+				c.globalBuilder.WriteString(fmt.Sprintf("@%s = common global i32 0, align 4\n", field.name))
 			} else {
-				c.irBuilder.WriteString(fmt.Sprintf("@%s = common global [%d x i8] zeroinitializer, align 1\n", field.name, field.picture.length))
+				c.globalBuilder.WriteString(fmt.Sprintf("@%s = common global [%d x i8] zeroinitializer, align 1\n", field.name, field.picture.length))
 			}
 		}
 	}
@@ -117,16 +125,27 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	if c.verbose {
 		fmt.Println("Visiting Procedure Division")
 	}
-	c.irBuilder.WriteString("declare i32 @printf(i8*, ...)\n\n")
-	c.irBuilder.WriteString("@.str_int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1\n")
+	var procBuilder strings.Builder
+	procBuilder.WriteString("declare i32 @printf(i8*, ...)\n")
+	procBuilder.WriteString("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)\n\n")
+	procBuilder.WriteString("@.str_int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1\n")
+	procBuilder.WriteString("@.str_nl = private unnamed_addr constant [2 x i8] c\"\\0A\\00\", align 1\n")
 
-	c.irBuilder.WriteString("define i32 @main() {\n")
-	c.irBuilder.WriteString("entry:\n")
+	c.globalBuilder.WriteString(procBuilder.String())
 
-	c.VisitChildren(ctx)
+	c.mainBuilder.WriteString("\ndefine i32 @main() {\n")
+	c.mainBuilder.WriteString("entry:\n")
 
-	c.irBuilder.WriteString("  ret i32 0\n")
-	c.irBuilder.WriteString("}\n")
+	for _, p := range ctx.AllParagraph() {
+		c.Visit(p)
+	}
+	for _, s := range ctx.AllSentence() {
+		c.Visit(s)
+	}
+
+	c.mainBuilder.WriteString("  ret i32 0\n")
+	c.mainBuilder.WriteString("}\n")
+
 	return nil
 }
 
@@ -142,32 +161,22 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		fmt.Println("Visiting Display Stmt")
 	}
 	for _, item := range ctx.AllDisplayItem() {
-		if lit, ok := item.Expr().(*parser.LitExprContext); ok {
-			str := lit.GetText()
-			str = strings.Trim(str, "\"")
-			str = strings.ReplaceAll(str, "\n", "\\0A")
-			str = strings.ReplaceAll(str, "\r", "\\0D")
-
-			// Create a global constant for the string
-			strName := fmt.Sprintf("@.str%d", c.strCounter)
-			c.strCounter++
-			c.irBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [%d x i8] c\"%s\\00\", align 1\n", strName, len(str)+1, str))
-
-			// Call printf
-			c.irBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([%d x i8], [%d x i8]* %s, i32 0, i32 0))\n", len(str)+1, len(str)+1, strName))
-		} else if id, ok := item.Expr().(*parser.IdExprContext); ok {
-			if field, ok := c.symbolTable.rootScope.fields[id.GetText()]; ok {
+		if id, ok := item.Expr().(*parser.IdExprContext); ok {
+			if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(id.GetText())]; ok {
 				if field.picture.isNumeric {
-					c.irBuilder.WriteString(fmt.Sprintf("  %%t%d = load i32, i32* @%s, align 4\n", c.strCounter, field.name))
-					c.irBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int, i32 0, i32 0), i32 %%t%d)\n", c.strCounter))
-					c.strCounter++
+					tempReg := fmt.Sprintf("%%t%d", c.tempRegCounter)
+					c.tempRegCounter++
+					c.mainBuilder.WriteString(fmt.Sprintf("  %s = load i32, i32* @%s, align 4\n", tempReg, field.name))
+					c.mainBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int, i32 0, i32 0), i32 %s)\n", tempReg))
 				} else {
-					if val, ok := c.values[field.name]; ok {
-						strName := fmt.Sprintf("@.str%d", c.strCounter)
-						c.strCounter++
-						c.irBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [%d x i8] c\"%s\\00\", align 1\n", strName, len(val)+1, val))
-						c.irBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([%d x i8], [%d x i8]* %s, i32 0, i32 0))\n", len(val)+1, len(val)+1, strName))
-					}
+					formatStrName := fmt.Sprintf("@.str_format_var%d", c.strCounter)
+					c.globalBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [6 x i8] c\"%%.*s\\0A\\00\", align 1\n", formatStrName))
+					c.strCounter++
+
+					tempPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
+					c.tempRegCounter++
+					c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* @%s, i32 0, i32 0\n", tempPtr, field.picture.length, field.picture.length, field.name))
+					c.mainBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* %s, i32 0, i32 0), i32 %d, i8* %s)\n", formatStrName, field.picture.length, tempPtr))
 				}
 			}
 		}
@@ -182,18 +191,30 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 	to := ctx.ExprList(1).AllExpr()[0]
 	from := ctx.ExprList(0).AllExpr()[0]
 
-	if c.verbose {
-		fmt.Printf("Moving %s to %s\n", from.GetText(), to.GetText())
-	}
-
-	if toField, ok := c.symbolTable.rootScope.fields[to.GetText()]; ok {
+	if toField, ok := c.symbolTable.rootScope.fields[strings.ToUpper(to.GetText())]; ok {
 		if fromLit, ok := from.(*parser.LitExprContext); ok {
-			if toField.picture.isNumeric {
-				c.irBuilder.WriteString(fmt.Sprintf("  store i32 %s, i32* @%s, align 4\n", fromLit.GetText(), toField.name))
-			} else {
-				str := fromLit.GetText()
-				str = strings.Trim(str, "\"")
-				c.values[toField.name] = str
+			if !toField.picture.isNumeric {
+				str := strings.Trim(fromLit.GetText(), "\"")
+				strLen := len(str)
+
+				strName := fmt.Sprintf("@.str%d", c.strCounter)
+				c.strCounter++
+				c.globalBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [%d x i8] c\"%s\\00\", align 1\n", strName, strLen+1, str))
+
+				destPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
+				c.tempRegCounter++
+				srcPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
+				c.tempRegCounter++
+
+				c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* @%s, i32 0, i32 0\n", destPtr, toField.picture.length, toField.picture.length, toField.name))
+				c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* %s, i32 0, i32 0\n", srcPtr, strLen+1, strLen+1, strName))
+
+				copySize := strLen
+				if toField.picture.length < copySize {
+					copySize = toField.picture.length
+				}
+
+				c.mainBuilder.WriteString(fmt.Sprintf("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %s, i8* align 1 %s, i64 %d, i1 false)\n", destPtr, srcPtr, copySize))
 			}
 		}
 	}
@@ -204,6 +225,5 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Stop Stmt")
 	}
-	c.irBuilder.WriteString("  ret i32 0\n")
 	return nil
 }
