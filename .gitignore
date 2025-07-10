@@ -1,3 +1,5 @@
 __pycache__
 tests/recombined_formatted
 tests/failed
+tests
+tests/

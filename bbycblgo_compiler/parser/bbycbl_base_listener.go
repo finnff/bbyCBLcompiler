@@ -39,6 +39,12 @@ func (s *BasebbyCBLListener) EnterIdentificationClause(ctx *IdentificationClause
 // ExitIdentificationClause is called when production identificationClause is exited.
 func (s *BasebbyCBLListener) ExitIdentificationClause(ctx *IdentificationClauseContext) {}
 
+// EnterFreeFormText is called when production freeFormText is entered.
+func (s *BasebbyCBLListener) EnterFreeFormText(ctx *FreeFormTextContext) {}
+
+// ExitFreeFormText is called when production freeFormText is exited.
+func (s *BasebbyCBLListener) ExitFreeFormText(ctx *FreeFormTextContext) {}
+
 // EnterDataDivision is called when production dataDivision is entered.
 func (s *BasebbyCBLListener) EnterDataDivision(ctx *DataDivisionContext) {}
 
@@ -225,6 +231,12 @@ func (s *BasebbyCBLListener) EnterDisplayStmt(ctx *DisplayStmtContext) {}
 // ExitDisplayStmt is called when production displayStmt is exited.
 func (s *BasebbyCBLListener) ExitDisplayStmt(ctx *DisplayStmtContext) {}
 
+// EnterWithNoAdvancingClause is called when production withNoAdvancingClause is entered.
+func (s *BasebbyCBLListener) EnterWithNoAdvancingClause(ctx *WithNoAdvancingClauseContext) {}
+
+// ExitWithNoAdvancingClause is called when production withNoAdvancingClause is exited.
+func (s *BasebbyCBLListener) ExitWithNoAdvancingClause(ctx *WithNoAdvancingClauseContext) {}
+
 // EnterDivideStmt is called when production divideStmt is entered.
 func (s *BasebbyCBLListener) EnterDivideStmt(ctx *DivideStmtContext) {}
 
@@ -260,6 +272,12 @@ func (s *BasebbyCBLListener) EnterLoopStmt(ctx *LoopStmtContext) {}
 
 // ExitLoopStmt is called when production loopStmt is exited.
 func (s *BasebbyCBLListener) ExitLoopStmt(ctx *LoopStmtContext) {}
+
+// EnterLoopContent is called when production loopContent is entered.
+func (s *BasebbyCBLListener) EnterLoopContent(ctx *LoopContentContext) {}
+
+// ExitLoopContent is called when production loopContent is exited.
+func (s *BasebbyCBLListener) ExitLoopContent(ctx *LoopContentContext) {}
 
 // EnterLoopControl is called when production loopControl is entered.
 func (s *BasebbyCBLListener) EnterLoopControl(ctx *LoopControlContext) {}
@@ -302,6 +320,12 @@ func (s *BasebbyCBLListener) EnterSignalEnable(ctx *SignalEnableContext) {}
 
 // ExitSignalEnable is called when production signalEnable is exited.
 func (s *BasebbyCBLListener) ExitSignalEnable(ctx *SignalEnableContext) {}
+
+// EnterSignalExpr is called when production signalExpr is entered.
+func (s *BasebbyCBLListener) EnterSignalExpr(ctx *SignalExprContext) {}
+
+// ExitSignalExpr is called when production signalExpr is exited.
+func (s *BasebbyCBLListener) ExitSignalExpr(ctx *SignalExprContext) {}
 
 // EnterStopStmt is called when production stopStmt is entered.
 func (s *BasebbyCBLListener) EnterStopStmt(ctx *StopStmtContext) {}

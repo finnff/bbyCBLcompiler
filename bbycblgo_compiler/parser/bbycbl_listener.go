@@ -17,6 +17,9 @@ type bbyCBLListener interface {
 	// EnterIdentificationClause is called when entering the identificationClause production.
 	EnterIdentificationClause(c *IdentificationClauseContext)
 
+	// EnterFreeFormText is called when entering the freeFormText production.
+	EnterFreeFormText(c *FreeFormTextContext)
+
 	// EnterDataDivision is called when entering the dataDivision production.
 	EnterDataDivision(c *DataDivisionContext)
 
@@ -110,6 +113,9 @@ type bbyCBLListener interface {
 	// EnterDisplayStmt is called when entering the displayStmt production.
 	EnterDisplayStmt(c *DisplayStmtContext)
 
+	// EnterWithNoAdvancingClause is called when entering the withNoAdvancingClause production.
+	EnterWithNoAdvancingClause(c *WithNoAdvancingClauseContext)
+
 	// EnterDivideStmt is called when entering the divideStmt production.
 	EnterDivideStmt(c *DivideStmtContext)
 
@@ -127,6 +133,9 @@ type bbyCBLListener interface {
 
 	// EnterLoopStmt is called when entering the loopStmt production.
 	EnterLoopStmt(c *LoopStmtContext)
+
+	// EnterLoopContent is called when entering the loopContent production.
+	EnterLoopContent(c *LoopContentContext)
 
 	// EnterLoopControl is called when entering the loopControl production.
 	EnterLoopControl(c *LoopControlContext)
@@ -148,6 +157,9 @@ type bbyCBLListener interface {
 
 	// EnterSignalEnable is called when entering the signalEnable production.
 	EnterSignalEnable(c *SignalEnableContext)
+
+	// EnterSignalExpr is called when entering the signalExpr production.
+	EnterSignalExpr(c *SignalExprContext)
 
 	// EnterStopStmt is called when entering the stopStmt production.
 	EnterStopStmt(c *StopStmtContext)
@@ -229,6 +241,9 @@ type bbyCBLListener interface {
 
 	// ExitIdentificationClause is called when exiting the identificationClause production.
 	ExitIdentificationClause(c *IdentificationClauseContext)
+
+	// ExitFreeFormText is called when exiting the freeFormText production.
+	ExitFreeFormText(c *FreeFormTextContext)
 
 	// ExitDataDivision is called when exiting the dataDivision production.
 	ExitDataDivision(c *DataDivisionContext)
@@ -323,6 +338,9 @@ type bbyCBLListener interface {
 	// ExitDisplayStmt is called when exiting the displayStmt production.
 	ExitDisplayStmt(c *DisplayStmtContext)
 
+	// ExitWithNoAdvancingClause is called when exiting the withNoAdvancingClause production.
+	ExitWithNoAdvancingClause(c *WithNoAdvancingClauseContext)
+
 	// ExitDivideStmt is called when exiting the divideStmt production.
 	ExitDivideStmt(c *DivideStmtContext)
 
@@ -340,6 +358,9 @@ type bbyCBLListener interface {
 
 	// ExitLoopStmt is called when exiting the loopStmt production.
 	ExitLoopStmt(c *LoopStmtContext)
+
+	// ExitLoopContent is called when exiting the loopContent production.
+	ExitLoopContent(c *LoopContentContext)
 
 	// ExitLoopControl is called when exiting the loopControl production.
 	ExitLoopControl(c *LoopControlContext)
@@ -361,6 +382,9 @@ type bbyCBLListener interface {
 
 	// ExitSignalEnable is called when exiting the signalEnable production.
 	ExitSignalEnable(c *SignalEnableContext)
+
+	// ExitSignalExpr is called when exiting the signalExpr production.
+	ExitSignalExpr(c *SignalExprContext)
 
 	// ExitStopStmt is called when exiting the stopStmt production.
 	ExitStopStmt(c *StopStmtContext)

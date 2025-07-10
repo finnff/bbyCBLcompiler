@@ -23,11 +23,13 @@ const (
 
 // Config holds the configuration for the application
 type Config struct {
-	MaxTest   int    `mapstructure:"maxtest"`
-	TestDir   string `mapstructure:"testdir"`
-	FailedDir string `mapstructure:"faileddir"`
-	FileExt   string `mapstructure:"fileext"`
-	RunMode   string `mapstructure:"runmode"`
+	MaxTest     int    `mapstructure:"maxtest"`
+	TestDir     string `mapstructure:"testdir"`
+	FailedDir   string `mapstructure:"faileddir"`
+	FileExt     string `mapstructure:"fileext"`
+	RunMode     string `mapstructure:"runmode"`
+	PrintPassed bool   `mapstructure:"printpassed"`
+	HideVerbose bool   `mapstructure:"hideverbose"`
 }
 
 var cfg Config
@@ -94,63 +96,58 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Define flags. Do NOT bind them directly to cfg fields here.
-	// Viper will handle the binding and precedence.
+	// Define flags.
 	rootCmd.PersistentFlags().IntP("maxtest", "n", 10000, "Set to 0 for all files")
 	rootCmd.PersistentFlags().StringP("testdir", "", "../tests/recombined_formatted/", "Directory with test files")
 	rootCmd.PersistentFlags().StringP("faileddir", "", "../tests/failed/", "Directory for failed tests")
 	rootCmd.PersistentFlags().StringP("fileext", "", ".baby", "Test file extension")
 	rootCmd.PersistentFlags().StringP("runmode", "", "parallel", "Run mode: sequential or parallel")
+	rootCmd.PersistentFlags().BoolP("printpassed", "p", false, "Print passed test cases")
+	failedCmd.Flags().BoolP("hideverbose", "d", false, "Hide verbose output for failed tests")
 
-	// Set hardcoded defaults in Viper. These have the lowest precedence.
+	// Set defaults.
 	viper.SetDefault("maxtest", 10000)
 	viper.SetDefault("testdir", "../tests/recombined_formatted/")
 	viper.SetDefault("faileddir", "../tests/failed/")
 	viper.SetDefault("fileext", ".baby")
 	viper.SetDefault("runmode", "parallel")
+	viper.SetDefault("printpassed", false)
+	viper.SetDefault("hideverbose", false)
 
-	// Bind all persistent flags to Viper. This tells Viper to look at command-line flags.
+	// Bind flags to Viper.
 	viper.BindPFlags(rootCmd.PersistentFlags())
+	viper.BindPFlags(failedCmd.Flags())
 
+	// Add commands to root.
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(failedCmd)
 	rootCmd.AddCommand(clearCmd)
 	rootCmd.AddCommand(setupCmd)
 }
 
-// initConfig reads the configuration from config.yaml and unmarshals into cfg.
-// This function is called by cobra.OnInitialize, ensuring it runs after flags are parsed
-// and before command Run functions are executed.
 func initConfig() {
-	// Set Viper to read from config.yaml
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 
-	// Read the config file. If not found, Viper will use defaults and flag values.
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			fmt.Println("Config file not found, using default values or flags.")
+			// Config file not found; ignore error
 		} else {
 			log.Fatalf("Failed to read config file: %v", err)
 		}
 	}
 
-	// Unmarshal the final resolved configuration from Viper into the cfg struct.
-	// Viper's precedence rules (flags > config file > defaults) are applied here.
 	if err := viper.Unmarshal(&cfg); err != nil {
 		log.Fatalf("Failed to unmarshal config: %v", err)
 	}
 }
 
 func main() {
-	// Execute the root command. This will parse flags and run the appropriate command.
 	Execute()
 }
 
-// runTests orchestrates the test execution based on the provided directory.
 func runTests(dir string, isFailedRun bool) {
-	// Create the directory if it doesn't exist
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		os.MkdirAll(dir, os.ModePerm)
 	}
@@ -160,7 +157,6 @@ func runTests(dir string, isFailedRun bool) {
 	fmt.Printf("CPU cores: %d\n", runtime.NumCPU())
 	fmt.Printf("GOMAXPROCS: %d\n\n", runtime.GOMAXPROCS(0))
 
-	// Get test files
 	files, err := getTestFiles(dir)
 	if err != nil {
 		log.Fatalf("Failed to get test files: %v", err)
@@ -173,15 +169,13 @@ func runTests(dir string, isFailedRun bool) {
 
 	fmt.Printf("Found %d test files\n\n", len(files))
 
-	// Run different approaches based on command line args
 	if cfg.RunMode == "sequential" {
-		runSequential(files, isFailedRun)
+		runSequential(files, isFailedRun, cfg.PrintPassed, cfg.HideVerbose)
 	} else {
-		runParallel(files, isFailedRun)
+		runParallel(files, isFailedRun, cfg.PrintPassed, cfg.HideVerbose)
 	}
 }
 
-// downloadAntlrJar downloads the ANTLR4 complete JAR if it's not already present.
 func downloadAntlrJar() {
 	fmt.Printf("Downloading ANTLR4 JAR to %s...\n", ANTLR_JAR)
 	if _, err := os.Stat(ANTLR_JAR); os.IsNotExist(err) {
@@ -207,15 +201,13 @@ func downloadAntlrJar() {
 	}
 }
 
-// generateParser generates the Go parser code using the ANTLR4 JAR.
 func generateParser() {
 	fmt.Printf("Generating parser from %s...\n", GRAMMAR)
-	// Create parser directory if it doesn't exist
 	if _, err := os.Stat(PARSER_DIR); os.IsNotExist(err) {
 		os.MkdirAll(PARSER_DIR, os.ModePerm)
 	}
 
-	cmd := exec.Command("java", "-jar", ANTLR_JAR, "-Dlanguage=Go", "-o", PARSER_DIR, GRAMMAR)
+	cmd := exec.Command("java", "-jar", ANTLR_JAR, "-Dlanguage=Go", "-o", PARSER_DIR, "-visitor", GRAMMAR)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

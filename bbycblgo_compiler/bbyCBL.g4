@@ -5,7 +5,7 @@ grammar bbyCBL;
    ===================== */
 
 program
-    : identificationDivision dataDivision? procedureDivision? EOF  // make iden = mandatory. procedure+data are optional
+    : identificationDivision dataDivision? procedureDivision? EOF
     ;
 
 /* IDENTIFICATION DIVISION and its clauses */
@@ -14,15 +14,19 @@ identificationDivision
     ;
 identificationClause
     : PROGRAM_ID   DOT (identifier | DATE | DATE_UNDERSCORE | ANY_DATE | ANY_DATE_UNDERSCORE) DOT
-    | AUTHOR       DOT identifier    DOT            
-    | DATE_WRITTEN DOT (DATE | DATE_UNDERSCORE | identifier) DOT         
-    | INSTALLATION DOT identifier    DOT                  
-    | SECURITY     DOT identifier    DOT                  
-    | DATE_COMPILED DOT (DATE | identifier) DOT          
-    | BASE         DOT identifier    DOT                  
+    | AUTHOR       DOT freeFormText DOT
+    | DATE_WRITTEN DOT (DATE | DATE_UNDERSCORE | freeFormText) DOT
+    | INSTALLATION DOT freeFormText DOT
+    | SECURITY     DOT freeFormText DOT
+    | DATE_COMPILED DOT (DATE | freeFormText) DOT
+    | BASE         DOT freeFormText DOT
     | COPY         copySource (REPLACING replacePair+)? DOT?
-    | DESCRIPTION  DOT identifier    DOT              // simple identifier for DESCRIPTION
-    | simpleId DOT (DATE | DATE_UNDERSCORE | identifier)? DOT   // NEW – covers "ELSE." "LIKE." …
+    | DESCRIPTION  DOT freeFormText DOT
+    | simpleId DOT freeFormText? DOT
+    ;
+
+freeFormText
+    : (simpleId | STRING | NUMBER | FLOAT | literal | DATE | DATE_UNDERSCORE | ANY_DATE | ANY_DATE_UNDERSCORE)+
     ;
 
 /* DATA DIVISION */
@@ -39,10 +43,9 @@ levelNumber
     : NUMBER
     ;
 pictureClause
-    : PICTURE IS picturePattern
+    : PICTURE (IS)? picturePattern
     ;
 
-// now parse picture‐patterns purely in the parser
 picturePattern
     : pictureElement+
     ;
@@ -51,30 +54,31 @@ pictureElement
       | IDENTIFIER
       | PROGRAM_ID | AUTHOR | DATE_WRITTEN | STOP
       | DATE | DATE_UNDERSCORE | ANY_DATE | ANY_DATE_UNDERSCORE
-      | MINUS | PLUS    
-      ) (LPAREN NUMBER RPAREN)?   // old form
-    | LPAREN (NUMBER | IDENTIFIER) RPAREN   // 9(I) as in test 195684
+      | MINUS | PLUS
+      ) (LPAREN NUMBER RPAREN)?
+    | LPAREN (NUMBER | IDENTIFIER) RPAREN
     ;
 
 likeClause
-    : LIKE identifierSegment (OF identifierSegment)* // 0‑N "OF …"
+    : LIKE identifierSegment (OF identifierSegment)*
     ;
 occursClause
-    : OCCURS NUMBER (TIMES)?                           // support optional TIMES
+    : OCCURS NUMBER (TIMES)?
     ;
 
 /* PROCEDURE DIVISION */
 procedureDivision
-    : PROCEDURE_DIVISION (USING usingClause)? DOT (paragraph | sentence)*  // Keep DOT after USING
+    : PROCEDURE_DIVISION (USING usingClause)? DOT (paragraph | sentence)*
     ;
 usingClause
-    : (BY (REFERENCE | VALUE | CONTENT) expr)+         // Changed IDENTIFIER to expr
+    : (BY (REFERENCE | VALUE | CONTENT) expr)+
     ;
 paragraph
-    : identifier DOT sentence*                          // use identifier to allow keywords
+    : identifier DOT sentence*
     ;
+
 sentence
-    : statement+ DOT DOT*                              // allow consecutive dots
+    : statement+ DOT DOT*
     ;
 statement
     : acceptStmt
@@ -94,27 +98,31 @@ statement
     | copyStmt
     | signalStmt
     | stopStmt
-    | alterStmt                                       // add ALTER support
-    | varyingStmt                                     // support standalone VARYING
-    | BASE                                           // Add BASE to allow it as identifier
+    | alterStmt
+    | varyingStmt
+    | BASE
     ;
 identifier
     : simpleId (OF simpleId)+        # qualified
     | simpleId                       # single
     ;
 
-
 simpleId
     : IDENTIFIER
-    | DESCRIPTION            
+    | DESCRIPTION
     | PROGRAM_ID | AUTHOR | DATE_WRITTEN | DATE | DATE_UNDERSCORE
     | ANY_DATE | ANY_DATE_UNDERSCORE
     | HIGH_VALUES | LOW_VALUES | SPACE | SPACES
     | BASE | TRUE | FALSE | END | ADD | MOVE | TO | THEN | ELSE
     | INSTALLATION | SECURITY | DATE_COMPILED
     | DISPLAY | OF | BY | COPY | VARYING | STOP | LIKE
+    | OFF | ON | ERROR | PROCEED | REFERENCE | VALUE | CONTENT
+    | OTHER | NOT | OR | AND | XOR | TIMES | USING | WHILE | UNTIL
+    | FROM | GIVING | INTO | THROUGH | GO | IF | LOOP | MULTIPLY
+    | DIVIDE | SUBTRACT | CALL | ACCEPT | PERFORM | SIGNAL | ALTER
+    | EVALUATE | WHEN | RUN | REMAINDER | SIZE | DELIMITED | WITH
+    | NO | ADVANCING | ALSO | NEXT | SENTENCE
     ;
-
 
 evalSubject
     : exprList
@@ -122,37 +130,48 @@ evalSubject
     ;
 
 /* Statements */
-/* Expressions and conditions */
-acceptStmt       : ACCEPT exprList?                                        ;
-addStmt          : ADD exprList TO exprList givingClause*                 ; // support multiple GIVING
-alterStmt        : ALTER identifier TO PROCEED TO identifier             ; // use identifier instead of IDENTIFIER
+acceptStmt
+    : ACCEPT exprList
+    ;
+addStmt          : ADD exprList TO exprList givingClause*                 ;
+alterStmt        : ALTER identifier TO PROCEED TO identifier             ;
 callStmt         : CALL expr (USING usingClause)?                           ;
-copySource       
+copySource
     : STRING
-    | simpleId                ; // now covers DISPLAY, COPY, etc.
+    | simpleId
+    ;
 copyStmt         : COPY copySource (REPLACING replacePair+)? identifier?    ;
-replacePair      : replaceBlock BY replaceBlock                          ;   // ===FOO=== BY ===BAR===
-replaceBlock     : equalDelim ( . )+? equalDelim                     ;   // wildcard tokens until next "===" or "=="
+replacePair      : replaceBlock BY replaceBlock                          ;
+replaceBlock     : equalDelim ( . )+? equalDelim                     ;
 
 equalDelim
     : TRIPLE_EQUAL
     | DOUBLE_EQUAL
     ;
 displayItem      : expr delimiterSpec?                                   ;
-delimiterSpec    
+delimiterSpec
     : DELIMITED_BY valueSpec
-    | DELIMITED BY valueSpec                                             ;
+    | DELIMITED BY valueSpec
+    ;
 valueSpec        : expr | SIZE | SPACE                                   ;
-displayStmt      : DISPLAY displayItem+ // 1‑N items
-                    (WITH_NO_ADVANCING | WITH NO ADVANCING)? // optional flag
-                    displayItem* // more items allowed;
-;
-divideStmt       : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)?                  ; // support multiple GIVING
+displayStmt      : DISPLAY displayItem+ withNoAdvancingClause? displayItem* ;
+
+withNoAdvancingClause
+    : WITH NO ADVANCING
+    | WITH_NO_ADVANCING
+    ;
+divideStmt       : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)? ;
 evaluateStmt     : EVALUATE evalSubject? (ALSO evalSubject)* whenClause+ (END_EVALUATE | END identifier?) ;
-givingClause     : GIVING exprList                                       ; // separate GIVING clause
+givingClause     : GIVING exprList                                       ;
 gotoStmt         : GO TO exprList                                        ;
 ifStmt           : IF condition THEN statement+ (ELSE statement+)? (END_IF | END)? ;
-loopStmt         : LOOP (loopControl | statement)* END identifier?  ;  // fully inter-leaved with optional identifier
+loopStmt         : LOOP loopContent* END identifier?
+    ;
+
+loopContent
+    : loopControl
+    | statement
+    ;
 
 loopControl
     : varyingClause
@@ -160,29 +179,32 @@ loopControl
     | untilClause
     ;
 moveStmt         : MOVE exprList TO exprList                             ;
-multiplyStmt     : MULTIPLY exprList BY exprList givingClause*            ; // support multiple GIVING
-nextSentenceStmt : NEXT_SENTENCE identifier? ;
-performStmt      : PERFORM expr (THROUGH expr)? (expr TIMES)?   | PERFORM exprList TIMES   ;   // THROUGH … [n] TIMES
+multiplyStmt     : MULTIPLY exprList BY exprList givingClause*            ;
+nextSentenceStmt 
+    : NEXT_SENTENCE identifier? 
+    | NEXT SENTENCE identifier?   
+    ;
+performStmt      : PERFORM expr (THROUGH expr)? (expr TIMES)?   | PERFORM exprList TIMES   ;
 signalStmt
     : SIGNAL OFF ON ERROR identifier?               # signalDisable
-    | SIGNAL expr (ON ERROR identifier?)?           # signalEnable
+    | SIGNAL simpleId ON ERROR identifier?          # signalEnable
+    | SIGNAL expr (ON ERROR identifier?)?           # signalExpr
     ;
-stopStmt         : STOP (RUN | identifier)?                              ;   // RUN   | paragraph‑name
-subtractStmt     : SUBTRACT exprList FROM exprList givingClause*         ;   // support multiple GIVING
+stopStmt         : STOP (RUN | identifier)?                              ;
+subtractStmt     : SUBTRACT exprList FROM exprList givingClause*         ;
 untilClause      : UNTIL condition                                       ;
 varyingClause
     : VARYING (qualifiedId | identifierSegment)?
       (FROM expr)? (TO expr)? (BY expr)? ;
 
-
-varyingStmt      
-    : varyingClause                     // full form
-    | VARYING                          // single keyword (old tests)
+varyingStmt
+    : varyingClause
+    | VARYING
     ;
 whenClause
     : WHEN OTHER statement+                                              # whenOther
     | WHEN evalSubject (THROUGH evalSubject)?
-      (ALSO evalSubject (THROUGH evalSubject)?)* ALSO?                   // dangling ALSO ok
+      (ALSO evalSubject (THROUGH evalSubject)?)* ALSO?
       statement+                                                         # whenValues
     ;
 whileClause      : WHILE condition                                       ;
@@ -190,22 +212,23 @@ exprList
     : expr (COMMA? expr)*
     ;
 condition
-    : simpleCond ((AND | OR | XOR) simpleCond)*                               // support AND/OR chains
+    : simpleCond ((AND | OR | XOR) simpleCond)*
     ;
+
 simpleCond
-    : LPAREN condition RPAREN                          // ( …boolean… )
-    | NOT? expr comparator expr                        // support NOT prefix
-    | NOT? comparator expr                             // allow "IF = 2" shorthand with NOT
-    | NOT? expr                                        // support NOT with single expression
-    | expr
+    : LPAREN condition RPAREN
+    | NOT? expr (comparator expr)?
+    | NOT? comparator expr
     ;
 comparator
     : EQ | NE | LT | LE | GT | GE
     ;
 identifierSegment
-    : simpleId (LPAREN expr RPAREN)*                    ;   // VAR(10)
+    : simpleId (LPAREN expr RPAREN)*
+    ;
 qualifiedId
-    : identifierSegment (OF identifierSegment)+         ;
+    : identifierSegment (OF identifierSegment)+
+    ;
 expr
     : PLUS expr                # UPlus
     | MINUS expr               # UMinus
@@ -228,9 +251,18 @@ literal
    Lexer rules
    ===================== */
 
+/* Case-insensitive fragments */
+fragment A: [aA]; fragment B: [bB]; fragment C: [cC]; fragment D: [dD];
+fragment E: [eE]; fragment F: [fF]; fragment G: [gG]; fragment H: [hH];
+fragment I: [iI]; fragment J: [jJ]; fragment K: [kK]; fragment L: [lL];
+fragment M: [mM]; fragment N: [nN]; fragment O: [oO]; fragment P: [pP];
+fragment Q: [qQ]; fragment R: [rR]; fragment S: [sS]; fragment T: [tT];
+fragment U: [uU]; fragment V: [vV]; fragment W: [wW]; fragment X: [xX];
+fragment Y: [yY]; fragment Z: [zZ];
+
 /* Floating-point literal */
 FLOAT
-    : [0-9]+ '.' [0-9]+                            // match numbers like 4.5, 12.121
+    : [0-9]+ '.' [0-9]+
     ;
 
 /* Integer literal */
@@ -256,123 +288,126 @@ ANY_DATE_UNDERSCORE
 
 /* Division headers */
 IDENTIFICATION_DIVISION
-    : 'IDENTIFICATION' WS+ 'DIVISION' WS* DOT
+    : I D E N T I F I C A T I O N WS+ D I V I S I O N WS* DOT
     ;
 DATA_DIVISION
-    : 'DATA' WS+ 'DIVISION' WS* DOT
+    : D A T A WS+ D I V I S I O N WS* DOT
     ;
 PROCEDURE_DIVISION
-    : 'PROCEDURE' WS+ 'DIVISION'                      // No DOT here - it comes in parser
+    : P R O C E D U R E WS+ D I V I S I O N
     ;
 
 /* Identification clauses */
 PROGRAM_ID
-    : 'PROGRAM-ID' | 'PROGRAMID'
+    : P R O G R A M '-' I D | P R O G R A M I D
     ;
 AUTHOR
-    : 'AUTHOR'
+    : A U T H O R
     ;
 DATE_WRITTEN
-    : 'DATE-WRITTEN' | 'DATA-WRITTEN' | 'DATE_WRITTEN'  // support underscore variant
+    : D A T E '-' W R I T T E N | D A T A '-' W R I T T E N | D A T E '_' W R I T T E N
     ;
 INSTALLATION
-    : 'INSTALLATION'
+    : I N S T A L L A T I O N
     ;
 SECURITY
-    : 'SECURITY'
+    : S E C U R I T Y
     ;
 DATE_COMPILED
-    : 'DATE-COMPILED'
+    : D A T E '-' C O M P I L E D
     ;
 BASE
-    : 'BASE'
+    : B A S E
     ;
 COPY
-    : 'COPY'
+    : C O P Y
     ;
 DESCRIPTION
-    : 'DESCRIPTION'
+    : D E S C R I P T I O N
     ;
 
 /* Data clauses */
 PICTURE
-    : 'PICTURE'
+    : P I C T U R E
     ;
 IS
-    : 'IS'
+    : I S
     ;
 LIKE
-    : 'LIKE'
+    : L I K E
     ;
 OCCURS
-    : 'OCCURS'
+    : O C C U R S
     ;
 
 /* Statement keywords & clauses */
 
-ACCEPT            : 'ACCEPT' ;
-ADD               : 'ADD' ;
-ALSO              : 'ALSO' ;
-ALTER             : 'ALTER' ;                        // add ALTER keyword
-AND               : 'AND' ;
-BY                : 'BY' ;
-CALL              : 'CALL' ;
-CONTENT           : 'CONTENT' ;                      // add CONTENT keyword
-DELIMITED_BY      : 'DELIMITED' WS+ 'BY' ;
-DELIMITED         : 'DELIMITED' ;
-DISPLAY           : 'DISPLAY' ;
-DIVIDE            : 'DIVIDE' ;
-ELSE              : 'ELSE' ;
-END               : 'END' ;
-OFF               : 'OFF' ;                          // add OFF keyword
-END_EVALUATE      : 'END-EVALUATE' ;
-END_IF            : 'END-IF' ;
-ERROR             : 'ERROR' ;                        // add ERROR keyword
-EVALUATE          : 'EVALUATE' ;
-FALSE             : 'FALSE' ;
-FROM              : 'FROM' ;
-GIVING            : 'GIVING' ;
-GO                : 'GO' ;
-IF                : 'IF' ;
-INTO              : 'INTO' ;
-LOOP              : 'LOOP' ;
-LOW_VALUES        : 'LOW-VALUES' ;
-MOVE              : 'MOVE' ;
-MULTIPLY          : 'MULTIPLY' ;
-NEXT_SENTENCE     : 'NEXT' WS+ 'SENTENCE' ;
-NOT               : 'NOT' ;                          // add NOT keyword
-OF                : 'OF' ;                           // add OF keyword for nested structure references
-ON                : 'ON' ;                           // add ON keyword
-OR                : 'OR' ;
-OTHER             : 'OTHER' ;                        // add OTHER keyword (for WHEN OTHER)
-PERFORM           : 'PERFORM' ;
-PROCEED           : 'PROCEED' ;                      // add PROCEED keyword
-REFERENCE         : 'REFERENCE' ;                    // add REFERENCE keyword
-REMAINDER         : 'REMAINDER' ;
-REPLACING         : 'REPLACING' ;                    // add REPLACING keyword
-RUN               : 'RUN' ;
-SIGNAL            : 'SIGNAL' ;
-SIZE              : 'SIZE' ;
-SPACE             : 'SPACE' ;
-SPACES            : 'SPACES' ;                       // for move statements
-STOP              : 'STOP' ;
-SUBTRACT          : 'SUBTRACT' ;
-THEN              : 'THEN' ;
-THROUGH           : 'THROUGH' | 'THRU' ;
-TIMES             : 'TIMES' ;
-TO                : 'TO' ;
-TRUE              : 'TRUE' ;
-UNTIL             : 'UNTIL' ;
-USING             : 'USING' ;
-VALUE             : 'VALUE' ;                        // add VALUE keyword
-VARYING           : 'VARYING' ;
-WHEN              : 'WHEN' ;
-WHILE             : 'WHILE' ;
-WITH_NO_ADVANCING : 'WITH' WS+ 'NO' WS+ 'ADVANCING' ;
-WITH              : 'WITH' ;
-NO                : 'NO' ;
-ADVANCING         : 'ADVANCING' ;
-XOR               : 'XOR' ;                          // add XOR keyword  
+ACCEPT            : A C C E P T ;
+ADD               : A D D ;
+ALSO              : A L S O ;
+ALTER             : A L T E R ;
+AND               : A N D ;
+BY                : B Y ;
+CALL              : C A L L ;
+CONTENT           : C O N T E N T ;
+DELIMITED_BY      : D E L I M I T E D WS+ B Y ;
+DELIMITED         : D E L I M I T E D ;
+DISPLAY           : D I S P L A Y ;
+DIVIDE            : D I V I D E ;
+ELSE              : E L S E ;
+END               : E N D ;
+OFF               : O F F ;
+END_EVALUATE      : E N D '-' E V A L U A T E ;
+END_IF            : E N D '-' I F ;
+ERROR             : E R R O R ;
+EVALUATE          : E V A L U A T E ;
+FALSE             : F A L S E ;
+FROM              : F R O M ;
+GIVING            : G I V I N G ;
+GO                : G O ;
+IF                : I F ;
+INTO              : I N T O ;
+LOOP              : L O O P ;
+LOW_VALUES        : L O W '-' V A L U E S ;
+MOVE              : M O V E ;
+MULTIPLY          : M U L T I P L Y ;
+NEXT_SENTENCE     : N E X T WS+ S E N T E N C E ;
+NEXT              : N E X T;
+SENTENCE          : S E N T E N C E;
+NOT               : N O T ;
+OF                : O F ;
+ON                : O N ;
+OR                : O R ;
+OTHER             : O T H E R ;
+PERFORM           : P E R F O R M ;
+PROCEED           : P R O C E E D ;
+REFERENCE         : R E F E R E N C E ;
+REMAINDER         : R E M A I N D E R ;
+REPLACING         : R E P L A C I N G ;
+RUN               : R U N ;
+SIGNAL            : S I G N A L ;
+SIZE              : S I Z E ;
+SPACE             : S P A C E ;
+SPACES            : S P A C E S ;
+STOP              : S T O P ;
+SUBTRACT          : S U B T R A C T ;
+THEN              : T H E N ;
+THROUGH           : T H R O U G H | T H R U ;
+TIMES             : T I M E S ;
+TO                : T O ;
+TRUE              : T R U E ;
+UNTIL             : U N T I L ;
+USING             : U S I N G ;
+VALUE             : V A L U E ;
+VARYING           : V A R Y I N G ;
+WHEN              : W H E N ;
+WHILE             : W H I L E ;
+WITH_NO_ADVANCING : W I T H WS* N O WS* A D V A N C I N G ;
+WITH              : W I T H ;
+NO                : N O ;
+ADVANCING         : A D V A N C I N G ;
+XOR               : X O R ;
+
 /* Operators & punctuation */
 COMMA         : ',' ;
 DOT           : '.' ;
@@ -380,28 +415,28 @@ LPAREN        : '(' ;
 RPAREN        : ')' ;
 PLUS          : '+' ;
 MINUS         : '-' ;
-MULT          : '*' ;                                     // separate from **
+MULT          : '*' ;
 DIV           : '/' ;
-POW           : '**' ;                                    // add exponentiation operator
+POW           : '**' ;
 EQ            : '=' ;
 NE            : '<>' ;
 LE            : '<=' ;
 GE            : '>=' ;
 LT            : '<' ;
 GT            : '>' ;
-TRIPLE_EQUAL  : '===' ;                                   // add TRIPLE_EQUAL for COPY REPLACING
-DOUBLE_EQUAL  : '==' ;                                    // add DOUBLE_EQUAL for COPY REPLACING
+TRIPLE_EQUAL  : '===' ;
+DOUBLE_EQUAL  : '==' ;
 
 /* Identifiers & literals */
 STRING
     : '"' (~["\\] | '\\' .)* '"'
     ;
 HIGH_VALUES
-    : 'HIGH-VALUES'
+    : H I G H '-' V A L U E S
     ;
 IDENTIFIER
-    : [A-Za-z_$][A-Za-z0-9_$-]*             
-    | [0-9]+ [A-Za-z_$-] [A-Za-z0-9_$-]*     // 9V9, 77-NAME, etc.
+    : [A-Za-z_$][A-Za-z0-9_$-]*
+    | [0-9]+ [A-Za-z_$-] [A-Za-z0-9_$-]*
     ;
 
 /* Whitespace */
