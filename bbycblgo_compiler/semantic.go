@@ -96,6 +96,10 @@ func (v *BaseAnalyzer) checkAreaB(token antlr.Token, constructName string) {
 	}
 }
 
+func (v *BaseAnalyzer) Visit(tree antlr.ParseTree) interface{} {
+	return tree.Accept(v)
+}
+
 func (v *BaseAnalyzer) VisitChildren(node antlr.RuleNode) interface{} {
 	for _, child := range node.GetChildren() {
 		child.(antlr.ParseTree).Accept(v)

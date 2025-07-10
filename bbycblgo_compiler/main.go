@@ -86,6 +86,17 @@ var setupCmd = &cobra.Command{
 	},
 }
 
+var compileCmd = &cobra.Command{
+	Use:   "compile [file]",
+	Short: "Compile a single COBOL file",
+	Long:  `This command parses, analyzes, and compiles a single COBOL file to LLVM IR.`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		compileFile(args[0], verbose)
+	},
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -95,6 +106,9 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
+
+	// Add flags to compile command
+	compileCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 
 	// Define flags.
 	rootCmd.PersistentFlags().IntP("maxtest", "n", 10000, "Set to 0 for all files")
@@ -123,6 +137,7 @@ func init() {
 	rootCmd.AddCommand(failedCmd)
 	rootCmd.AddCommand(clearCmd)
 	rootCmd.AddCommand(setupCmd)
+	rootCmd.AddCommand(compileCmd)
 }
 
 func initConfig() {

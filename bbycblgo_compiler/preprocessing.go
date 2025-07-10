@@ -117,6 +117,13 @@ func isAlphaNumeric(c byte) bool {
 		c == '_' || c == '$'
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Alternative simpler fix - just ensure space between continuation lines
 func preprocessCobolAdvancedSimple(lines []string) string {
 	var processed strings.Builder
