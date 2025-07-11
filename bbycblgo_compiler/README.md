@@ -16,31 +16,47 @@ This project provides a Go-based tool for parsing bbyCOBOL files using ANTLR4. I
 
 To use this tool, you'll typically follow these steps:
 
-1.  **Build the application:**
+1.  **Build the application, download antlr JAR, and generate the parser code:**
 
-    ```bash
-    go build -o bbycblgo .
-    ```
+* `make build`
 
-2.  **Setup (Download ANTLR JAR and Generate Parser):**
+```
+A parser for COBOL files, with options for running tests, and managing failed tests.
 
-    ```bash
-    ./bbycblgo setup
-    ```
+Usage:
+  bbycblgo [flags]
+  bbycblgo [command]
 
-3.  **Run tests:**
+Available Commands:
+  ast         Parse COBOL file(s) and print the AST
+  clear       Clear the failed tests directory
+  compile     Compile COBOL file(s)
+  failed      Run only previously failed tests
+  help        Help about any command
+  setup       Downloads ANTLR JAR and generates parser code
+  test        Run all tests
 
-    *   **Run all tests (parallel by default):**
+Flags:
+      --fileext string   Test file extension (default ".baby")
+  -h, --help             help for bbycblgo
+  -n, --maxfiles int     Set to 0 for all files (default 10000)
+      --runmode string   Run mode: sequential or parallel (default "parallel")
+
+Use "bbycblgo [command] --help" for more information about a command.
+```
+
+
+2.  **Commands:**
+
+    *   **Run all tests:**
 
         ```bash
         ./bbycblgo test
         ```
 
-    *   **Run tests in sequential mode:**
-
-        ```bash
-        ./bbycblgo test --runmode sequential
-        ```
+        *   Flags for `test` command:
+            *   `--testdir string`: Directory with test files (default `../tests/recombined_formatted/`)
+            *   `-p, --printpassed`: Print passed test cases
 
     *   **Run only previously failed tests:**
 
@@ -48,28 +64,48 @@ To use this tool, you'll typically follow these steps:
         ./bbycblgo failed
         ```
 
+        *   Flags for `failed` command:
+            *   `--faileddir string`: Directory for failed tests (default `../tests/failed/`)
+            *   `-d, --hideverbose`: Hide verbose output for failed tests
+
     *   **Clear the failed tests directory:**
 
         ```bash
         ./bbycblgo clear
         ```
 
-    *   **Override max tests (e.g., run only 100 tests):**
+        *   Flags for `clear` command:
+            *   `--faileddir string`: Directory for failed tests (default `../tests/failed/`)
+
+    *   **Parse COBOL file(s) and print the AST:**
 
         ```bash
-        ./bbycblgo test --maxtest 100
-        # or using the alias
-        ./bbycblgo test -n 100
+        ./bbycblgo ast [file/directory]
         ```
+
+    *   **Compile COBOL file(s):**
+
+        ```bash
+        ./bbycblgo compile [file/directory]
+        ```
+
+        *   Flags for `compile` command:
+            *   `-v, --verbose`: Enable verbose output
+
+## Global Flags:
+
+These flags can be used with any command:
+
+*   `--fileext string`: Test file extension (default ".baby")
+*   `-n, --maxfiles int`: Set to 0 for all files (default 10000)
+*   `--runmode string`: Run mode: sequential or parallel (default "parallel")
 
 ## Configuration:
 
 Edit `config.yaml` to change default parameters:
 
 ```yaml
-maxtest: 10000
-testdir: "../tests/recombined_formatted/"
-faileddir: "../tests/failed/"
+maxfiles: 10000
 fileext: ".baby"
 runmode: "parallel"
 ```

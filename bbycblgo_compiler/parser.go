@@ -159,8 +159,8 @@ func getTestFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	sort.Strings(files)
-	if cfg.MaxTest > 0 && len(files) > cfg.MaxTest {
-		files = files[:cfg.MaxTest]
+	if cfg.MaxFiles > 0 && len(files) > cfg.MaxFiles {
+		files = files[:cfg.MaxFiles]
 	}
 	return files, nil
 }
@@ -360,4 +360,74 @@ func compileFile(filepath string, verbose bool) {
 	}
 
 	fmt.Printf("%sSuccessfully compiled %s to %s%s\n", ColorGreen, filepath, exeFile, ColorReset)
+}
+
+func parseFile(filepath string) {
+	fmt.Printf("Parsing %s\n", filepath)
+	file, err := os.Open(filepath)
+	if err != nil {
+		log.Fatalf("Failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatalf("Failed to read file: %v", err)
+	}
+
+	processedText := preprocessCobolAdvanced(lines)
+	input := antlr.NewInputStream(processedText)
+	lexer := parser.NewbbyCBLLexer(input)
+	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+	p := parser.NewbbyCBLParser(stream)
+
+	errorListener := NewCustomErrorListener()
+	p.RemoveErrorListeners()
+	p.AddErrorListener(errorListener)
+	lexer.RemoveErrorListeners()
+	lexer.AddErrorListener(errorListener)
+
+	tree := p.Program()
+
+	if errorListener.HasError {
+		fmt.Printf("%sSyntax errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range errorListener.Errors {
+			fmt.Printf("- %s\n", e)
+		}
+		return
+	}
+
+	builder := NewSymbolTableBuilder()
+	tree.Accept(builder)
+
+	semanticErrors := Analyze(tree)
+	if len(semanticErrors) > 0 {
+		fmt.Printf("%sSemantic errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range semanticErrors {
+			fmt.Printf("- line %d: %s\n", e.line, e.msg)
+		}
+		return
+	}
+
+	// Print AST
+	fmt.Printf("\n%s--- Abstract Syntax Tree ---%s\n", ColorCyan, ColorReset)
+	astPrinter := &ASTPrinter{Indentation: 0}
+	tree.Accept(astPrinter)
+
+	// Print Symbol Table
+	fmt.Printf("\n%s--- Symbol Table ---%s\n", ColorCyan, ColorReset)
+	for name, symbol := range builder.symbolTable.rootScope.fields {
+		fmt.Printf("  %s: &{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x children:[", name, symbol.name, symbol.level, symbol.picture, symbol.likeRef, symbol.occurs, symbol.initialized, symbol.parent)
+		for i, child := range symbol.children {
+			fmt.Printf("&{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x}", child.name, child.level, child.picture, child.likeRef, child.occurs, child.initialized, child.parent)
+			if i < len(symbol.children)-1 {
+				fmt.Printf(" ")
+			}
+		}
+		fmt.Println("]}")
+	}
 }

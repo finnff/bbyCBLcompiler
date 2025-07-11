@@ -131,23 +131,6 @@ func NewSymbolTableBuilder() *SymbolTableBuilder {
 	}
 }
 
-func (v *SymbolTableBuilder) VisitIdentificationDivision(ctx *parser.IdentificationDivisionContext) interface{} {
-	v.checkAreaA(ctx.GetStart(), "IDENTIFICATION DIVISION")
-	return v.VisitChildren(ctx)
-}
-
-func (v *SymbolTableBuilder) VisitDataDivision(ctx *parser.DataDivisionContext) interface{} {
-	v.checkAreaA(ctx.GetStart(), "DATA DIVISION")
-	v.parentStack = []*FieldSymbol{}
-	v.VisitChildren(ctx)
-	return nil
-}
-
-func (v *SymbolTableBuilder) VisitProcedureDivision(ctx *parser.ProcedureDivisionContext) interface{} {
-	v.checkAreaA(ctx.GetStart(), "PROCEDURE DIVISION")
-	return v.VisitChildren(ctx)
-}
-
 func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interface{} {
 	levelStr := ctx.LevelNumber().GetText()
 	level, err := strconv.Atoi(levelStr)
@@ -225,7 +208,7 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 		v.symbolTable.rootScope.fields[name] = field
 	}
 
-	return nil
+	return v.VisitChildren(ctx)
 }
 
 func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {

@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -23,7 +24,7 @@ const (
 
 // Config holds the configuration for the application
 type Config struct {
-	MaxTest     int    `mapstructure:"maxtest"`
+	MaxFiles    int    `mapstructure:"maxfiles"`
 	TestDir     string `mapstructure:"testdir"`
 	FailedDir   string `mapstructure:"faileddir"`
 	FileExt     string `mapstructure:"fileext"`
@@ -68,9 +69,10 @@ var clearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear the failed tests directory",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Clearing failed tests directory: %s\n", cfg.FailedDir)
-		os.RemoveAll(cfg.FailedDir)
-		os.MkdirAll(cfg.FailedDir, os.ModePerm)
+		failedDir, _ := cmd.Flags().GetString("faileddir")
+		fmt.Printf("Clearing failed tests directory: %s\n", failedDir)
+		os.RemoveAll(failedDir)
+		os.MkdirAll(failedDir, os.ModePerm)
 	},
 }
 
@@ -87,13 +89,62 @@ var setupCmd = &cobra.Command{
 }
 
 var compileCmd = &cobra.Command{
-	Use:   "compile [file]",
-	Short: "Compile a single COBOL file",
-	Long:  `This command parses, analyzes, and compiles a single COBOL file to LLVM IR.`,
-	Args:  cobra.ExactArgs(1),
+	Use:   "compile [file/directory]",
+	Short: "Compile COBOL file(s)",
+	Long:  `This command parses, analyzes, and compiles a single COBOL file or all COBOL files in a directory to LLVM IR.`,
+	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		compileFile(args[0], verbose)
+
+		for _, arg := range args {
+			info, err := os.Stat(arg)
+			if err != nil {
+				log.Printf("Error stating %s: %v", arg, err)
+				continue
+			}
+
+			if info.IsDir() {
+				files, err := getTestFiles(arg)
+				if err != nil {
+					log.Fatalf("Failed to get files from directory %s: %v", arg, err)
+				}
+				// getTestFiles already respects cfg.MaxFiles
+				for _, file := range files {
+					compileFile(file, verbose)
+				}
+			} else {
+				compileFile(arg, verbose)
+			}
+		}
+	},
+}
+
+var parseCmd = &cobra.Command{
+	Use:   "ast [file/directory]",
+	Short: "Parse COBOL file(s) and print the AST",
+	Long:  `This command parses a single COBOL file or all COBOL files in a directory and prints the AST.`,
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		for _, arg := range args {
+			info, err := os.Stat(arg)
+			if err != nil {
+				log.Printf("Error stating %s: %v", arg, err)
+				continue
+			}
+
+			if info.IsDir() {
+				files, err := getTestFiles(arg)
+				if err != nil {
+					log.Fatalf("Failed to get files from directory %s: %v", arg, err)
+				}
+				// getTestFiles already respects cfg.MaxFiles
+				for _, file := range files {
+					parseFile(file)
+				}
+			} else {
+				parseFile(arg)
+			}
+		}
 	},
 }
 
@@ -111,16 +162,20 @@ func init() {
 	compileCmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
 
 	// Define flags.
-	rootCmd.PersistentFlags().IntP("maxtest", "n", 10000, "Set to 0 for all files")
-	rootCmd.PersistentFlags().StringP("testdir", "", "../tests/recombined_formatted/", "Directory with test files")
-	rootCmd.PersistentFlags().StringP("faileddir", "", "../tests/failed/", "Directory for failed tests")
+	rootCmd.PersistentFlags().IntP("maxfiles", "n", 10000, "Set to 0 for all files")
 	rootCmd.PersistentFlags().StringP("fileext", "", ".baby", "Test file extension")
 	rootCmd.PersistentFlags().StringP("runmode", "", "parallel", "Run mode: sequential or parallel")
-	rootCmd.PersistentFlags().BoolP("printpassed", "p", false, "Print passed test cases")
+
+	testCmd.Flags().StringP("testdir", "", "../tests/recombined_formatted/", "Directory with test files")
+	testCmd.Flags().BoolP("printpassed", "p", false, "Print passed test cases")
+
+	failedCmd.Flags().StringP("faileddir", "", "../tests/failed/", "Directory for failed tests")
 	failedCmd.Flags().BoolP("hideverbose", "d", false, "Hide verbose output for failed tests")
 
+	clearCmd.Flags().StringP("faileddir", "", "../tests/failed/", "Directory for failed tests")
+
 	// Set defaults.
-	viper.SetDefault("maxtest", 10000)
+	viper.SetDefault("maxfiles", 10000)
 	viper.SetDefault("testdir", "../tests/recombined_formatted/")
 	viper.SetDefault("faileddir", "../tests/failed/")
 	viper.SetDefault("fileext", ".baby")
@@ -130,7 +185,15 @@ func init() {
 
 	// Bind flags to Viper.
 	viper.BindPFlags(rootCmd.PersistentFlags())
-	viper.BindPFlags(failedCmd.Flags())
+	testCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		viper.BindPFlag(f.Name, f)
+	})
+	failedCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		viper.BindPFlag(f.Name, f)
+	})
+	clearCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		viper.BindPFlag(f.Name, f)
+	})
 
 	// Add commands to root.
 	rootCmd.AddCommand(testCmd)
@@ -138,6 +201,7 @@ func init() {
 	rootCmd.AddCommand(clearCmd)
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(compileCmd)
+	rootCmd.AddCommand(parseCmd)
 }
 
 func initConfig() {
