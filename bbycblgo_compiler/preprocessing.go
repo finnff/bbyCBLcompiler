@@ -94,15 +94,14 @@ func preprocessCobolAdvanced(lines []string) string {
 
 		} else if indicator != ' ' {
 			return "Error: Invalid indicator '" + string(indicator) + "' in line: " + line
-		} else {
-			// Normal line processing
-			codeArea = strings.TrimRight(codeArea, " \t")
-
-			if len(codeArea) > 0 {
-				processed.WriteString(codeArea)
-				processed.WriteString("\n")
-				lastWasNonSpace = false // Reset after newline
-			}
+		} else { // Normal line processing
+			// For normal lines, we should write the content from column 0 to 71 (0-indexed)
+			// to the processed string, preserving all leading spaces.
+			// The indicator (column 6) is already checked above.
+			fullLineContent := line[0:min(len(line), 72)]
+			processed.WriteString(fullLineContent)
+			processed.WriteString("\n")
+			lastWasNonSpace = false // Reset after newline
 		}
 	}
 

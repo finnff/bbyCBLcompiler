@@ -344,6 +344,7 @@ func compileFile(filepath string, verbose bool) {
 		return
 	}
 
+	// --- Semantic Analysis ---
 	builder := NewSymbolTableBuilder()
 	tree.Accept(builder)
 	if len(builder.errors) > 0 {
@@ -364,6 +365,7 @@ func compileFile(filepath string, verbose bool) {
 		}
 		return
 	}
+	// --- End Semantic Analysis ---
 
 	// Generate LLVM IR
 	ir, codegenErrors := Generate(tree, builder.symbolTable, verbose, filepath)

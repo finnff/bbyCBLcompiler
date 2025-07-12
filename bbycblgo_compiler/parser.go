@@ -125,7 +125,7 @@ func parseFileCobol(filepath string) ParseResult {
 
 	tree := p.Program()
 
-	semanticErrors := Analyze(tree)
+	_, semanticErrors := Analyze(tree)
 	if len(semanticErrors) > 0 {
 		for _, err := range semanticErrors {
 			parseErrorListener.Errors = append(parseErrorListener.Errors, fmt.Sprintf("semantic error line %d: %s", err.line, err.msg))
@@ -277,8 +277,6 @@ func copyFailedTest(filename string) {
 	}
 }
 
-
-
 func parseFile(filepath string) {
 	fmt.Printf("Parsing %s\n", filepath)
 	file, err := os.Open(filepath)
@@ -318,10 +316,7 @@ func parseFile(filepath string) {
 		return
 	}
 
-	builder := NewSymbolTableBuilder()
-	tree.Accept(builder)
-
-	semanticErrors := Analyze(tree)
+	symbolTable, semanticErrors := Analyze(tree) // Now Analyze returns the symbolTable
 	if len(semanticErrors) > 0 {
 		fmt.Printf("%sSemantic errors in %s:%s\n", ColorRed, filepath, ColorReset)
 		for _, e := range semanticErrors {
@@ -337,7 +332,8 @@ func parseFile(filepath string) {
 
 	// Print Symbol Table
 	fmt.Printf("\n%s--- Symbol Table ---%s\n", ColorCyan, ColorReset)
-	for name, symbol := range builder.symbolTable.rootScope.fields {
+	// Use the returned symbolTable here
+	for name, symbol := range symbolTable.rootScope.fields {
 		fmt.Printf("  %s: &{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x children:[", name, symbol.name, symbol.level, symbol.picture, symbol.likeRef, symbol.occurs, symbol.initialized, symbol.parent)
 		for i, child := range symbol.children {
 			fmt.Printf("&{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x}", child.name, child.level, child.picture, child.likeRef, child.occurs, child.initialized, child.parent)

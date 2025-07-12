@@ -4,6 +4,7 @@ import (
 	"bbycblgo_compiler/parser"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -97,6 +98,17 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 	codegen.builder = codegen.context.NewBuilder()
 	defer codegen.builder.Dispose()
 
+	if codegen.verbose {
+		fmt.Println("--- Symbol Table Contents ---")
+		if len(symbolTable.rootScope.fields) == 0 {
+			fmt.Println("Symbol table is empty!")
+		}
+		for name, field := range symbolTable.rootScope.fields {
+			fmt.Printf("Field: %s, Numeric: %v, Length: %d\n", name, field.picture.isNumeric, field.picture.length)
+		}
+		fmt.Println("---------------------------")
+	}
+
 	codegen.Visit(tree)
 
 	if err := llvm.VerifyModule(codegen.module, llvm.PrintMessageAction); err != nil {
@@ -166,15 +178,19 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 	}
 	for _, dataEntry := range ctx.AllDataEntry() {
 		if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(dataEntry.Identifier().GetText())]; ok {
+			var global llvm.Value
 			if field.picture.isNumeric {
-				global := llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
+				global = llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
 				global.SetInitializer(llvm.ConstInt(c.context.Int32Type(), 0, false))
 				global.SetAlignment(4)
 			} else {
 				globalType := llvm.ArrayType(c.context.Int8Type(), field.picture.length)
-				global := llvm.AddGlobal(c.module, globalType, field.name)
+				global = llvm.AddGlobal(c.module, globalType, field.name)
 				global.SetInitializer(llvm.ConstNull(globalType))
 				global.SetAlignment(1)
+			}
+			if c.verbose {
+				fmt.Printf("Created global variable: %s\n", global.Name())
 			}
 		}
 	}
@@ -230,28 +246,47 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 	}
 	for _, item := range ctx.AllDisplayItem() {
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
-			if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(id.GetText())]; ok {
+			fieldName := strings.ToUpper(id.GetText())
+			if field, ok := c.symbolTable.rootScope.fields[fieldName]; ok {
 				printf := c.module.NamedFunction("printf")
+				destPtr := c.module.NamedGlobal(field.name)
+
+				if destPtr.IsNil() {
+					if c.verbose {
+						fmt.Printf("Display error: Global variable %s not found\n", field.name)
+					}
+					continue
+				}
+
 				if field.picture.isNumeric {
 					formatStr := c.builder.CreateGlobalStringPtr("%d\n", ".str_int")
-					loadedVar := c.builder.CreateLoad(c.module.NamedGlobal(field.name).GlobalValueType(), c.module.NamedGlobal(field.name), "")
+					loadedVar := c.builder.CreateLoad(destPtr.GlobalValueType(), destPtr, "")
 					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{formatStr, loadedVar}, "")
+					if c.verbose {
+						fmt.Printf("Generated display for numeric field: %s\n", field.name)
+					}
 				} else {
 					formatStr := c.builder.CreateGlobalStringPtr("%.*s\n", fmt.Sprintf(".str_format_var%d", c.strCounter))
 					c.strCounter++
 
-					destPtr := c.module.NamedGlobal(field.name)
 					indices := []llvm.Value{
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 					}
-					gep := c.builder.CreateGEP(destPtr.GlobalValueType(), destPtr, indices, "")
+					gep := c.builder.CreateInBoundsGEP(destPtr.GlobalValueType(), destPtr, indices, "")
 
 					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{
 						formatStr,
 						llvm.ConstInt(c.context.Int32Type(), uint64(field.picture.length), false),
 						gep,
 					}, "")
+					if c.verbose {
+						fmt.Printf("Generated display for string field: %s\n", field.name)
+					}
+				}
+			} else {
+				if c.verbose {
+					fmt.Printf("Display error: Field %s not found in symbol table\n", fieldName)
 				}
 			}
 		}
@@ -260,48 +295,87 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 }
 
 func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
-	// TODO: The GEP instruction is not being generated correctly.
-	// I have tried several combinations of parameters, but the main function is always empty.
-	// I am not sure what is wrong. I am leaving the code as it is for now.
 	if c.verbose {
 		fmt.Println("Visiting Move Stmt")
 	}
+
 	to := ctx.ExprList(1).AllExpr()[0]
 	from := ctx.ExprList(0).AllExpr()[0]
 
-	if toField, ok := c.symbolTable.rootScope.fields[strings.ToUpper(to.GetText())]; ok {
-		if fromLit, ok := from.(*parser.LitExprContext); ok {
-			if !toField.picture.isNumeric {
-				str := strings.Trim(fromLit.GetText(), "\"")
-				strLen := len(str)
+	if c.verbose {
+		fmt.Printf("Move from: %T (%s) to: %T (%s)\n", from, from.GetText(), to, to.GetText())
+	}
 
-				// Create a global constant for the string literal
-				strName := fmt.Sprintf(".str%d", c.strCounter)
-				c.strCounter++
-				globalStr := c.builder.CreateGlobalStringPtr(str, strName)
+	toField, ok := c.symbolTable.rootScope.fields[strings.ToUpper(to.GetText())]
+	if !ok {
+		if c.verbose {
+			fmt.Printf("Move error: Destination field %s not found in symbol table\n", to.GetText())
+		}
+		return nil
+	}
+	if c.verbose {
+		fmt.Printf("Found destination field %s in symbol table\n", toField.name)
+	}
 
-				destPtr := c.module.NamedGlobal(toField.name)
+	destPtr := c.module.NamedGlobal(toField.name)
+	if destPtr.IsNil() {
+		if c.verbose {
+			fmt.Printf("Move error: Global variable %s not found\n", toField.name)
+		}
+		return nil
+	}
 
-				indices := []llvm.Value{
-					llvm.ConstInt(c.context.Int32Type(), 0, false),
-					llvm.ConstInt(c.context.Int32Type(), 0, false),
-				}
+	if fromLit, ok := from.(*parser.LitExprContext); ok {
+		if c.verbose {
+			fmt.Printf("Source is literal: %s\n", fromLit.GetText())
+		}
+		if toField.picture.isNumeric {
+			if c.verbose {
+				fmt.Printf("Generating move for numeric field: %s\n", toField.name)
+			}
+			numStr := fromLit.GetText()
+			val, err := strconv.ParseInt(numStr, 10, 32)
+			if err != nil {
+				c.addError(fmt.Sprintf("Invalid numeric literal: %s", numStr), from.GetStart().GetLine())
+				return nil
+			}
+			c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(val), true), destPtr)
+			if c.verbose {
+				fmt.Println("Generated store instruction for numeric move")
+			}
+		} else {
+			if c.verbose {
+				fmt.Printf("Generating move for string field: %s\n", toField.name)
+			}
+			str := strings.Trim(fromLit.GetText(), "\"")
+			strLen := len(str)
 
-				destGEP := c.builder.CreateGEP(destPtr.GlobalValueType(), destPtr, indices, "")
-				srcGEP := c.builder.CreateGEP(globalStr.GlobalValueType(), globalStr, indices, "")
+			strName := fmt.Sprintf(".str%d", c.strCounter)
+			c.strCounter++
+			globalStr := c.builder.CreateGlobalStringPtr(str, strName)
 
-				copySize := strLen
-				if toField.picture.length < copySize {
-					copySize = toField.picture.length
-				}
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+			}
 
-				memcpy := c.module.NamedFunction("llvm.memcpy.p0i8.p0i8.i64")
-				c.builder.CreateCall(memcpy.GlobalValueType(), memcpy, []llvm.Value{
-					destGEP,
-					srcGEP,
-					llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
-					llvm.ConstInt(c.context.Int1Type(), 0, false),
-				}, "")
+			destGEP := c.builder.CreateInBoundsGEP(destPtr.GlobalValueType(), destPtr, indices, "")
+			srcGEP := c.builder.CreateInBoundsGEP(globalStr.GlobalValueType(), globalStr, indices, "")
+
+			copySize := strLen
+			if toField.picture.length < copySize {
+				copySize = toField.picture.length
+			}
+
+			memcpy := c.module.NamedFunction("llvm.memcpy.p0i8.p0i8.i64")
+			c.builder.CreateCall(memcpy.GlobalValueType(), memcpy, []llvm.Value{
+				destGEP,
+				srcGEP,
+				llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
+				llvm.ConstInt(c.context.Int1Type(), 0, false),
+			}, "")
+			if c.verbose {
+				fmt.Println("Generated memcpy call for string move")
 			}
 		}
 	}

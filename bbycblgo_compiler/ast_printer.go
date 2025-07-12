@@ -102,7 +102,6 @@ func (v *ASTPrinter) VisitProcedureDivision(ctx *parser.ProcedureDivisionContext
 	return v.VisitChildren(ctx)
 }
 
-
 func (v *ASTPrinter) VisitParagraph(ctx *parser.ParagraphContext) interface{} {
 	fmt.Printf("%sParagraph: %s\n", v.indent(), ctx.Identifier().GetText())
 	return v.VisitChildren(ctx)
@@ -352,9 +351,6 @@ func (v *ASTPrinter) VisitPerformStmt(ctx *parser.PerformStmtContext) interface{
 	return v.VisitChildren(ctx)
 }
 
-
-
-
 func (v *ASTPrinter) VisitAlterStmt(ctx *parser.AlterStmtContext) interface{} {
 	fmt.Printf("%sAlterStatement\n", v.indent())
 	return v.VisitChildren(ctx)
@@ -413,7 +409,6 @@ func (v *ASTPrinter) VisitReplaceBlock(ctx *parser.ReplaceBlockContext) interfac
 	v.Indentation--
 	return nil
 
-
 }
 
 func (v *ASTPrinter) VisitReplacePair(ctx *parser.ReplacePairContext) interface{} {
@@ -431,8 +426,6 @@ func (v *ASTPrinter) VisitReplacePair(ctx *parser.ReplacePairContext) interface{
 	return nil
 
 }
-
-
 
 func (v *ASTPrinter) VisitExprList(ctx *parser.ExprListContext) interface{} {
 	fmt.Printf("%sExprList\n", v.indent())
@@ -453,7 +446,6 @@ func (v *ASTPrinter) VisitQualified(ctx *parser.QualifiedContext) interface{} {
 	fmt.Printf("%sIdentifier (Qualified): %s\n", v.indent(), ctx.GetText())
 	return nil
 }
-
 
 func (v *ASTPrinter) VisitSingle(ctx *parser.SingleContext) interface{} {
 	fmt.Printf("%sIdentifier (Single): %s\n", v.indent(), ctx.GetText())

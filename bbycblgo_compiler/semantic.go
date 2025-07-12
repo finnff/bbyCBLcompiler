@@ -72,7 +72,6 @@ type BaseAnalyzer struct {
 }
 
 func (v *BaseAnalyzer) addError(msg string, line int) {
-	fmt.Printf("Adding error: %s at line %d\n", msg, line)
 	v.errors = append(v.errors, SemanticError{msg, line})
 }
 
@@ -100,24 +99,17 @@ func (v *BaseAnalyzer) Visit(tree antlr.ParseTree) interface{} {
 	return tree.Accept(v)
 }
 
-func (v *BaseAnalyzer) VisitChildren(node antlr.RuleNode) interface{} {
-	for _, child := range node.GetChildren() {
-		child.(antlr.ParseTree).Accept(v)
-	}
-	return nil
-}
-
 // --- Pass 1: Symbol Table Builder ---
 
 type SymbolTableBuilder struct {
-	*BaseAnalyzer
-	symbolTable *SymbolTable
-	parentStack []*FieldSymbol
+	*BaseAnalyzer // Embed BaseAnalyzer instead of BasebbyCBLVisitor directly
+	symbolTable   *SymbolTable
+	parentStack   []*FieldSymbol
 }
 
 func NewSymbolTableBuilder() *SymbolTableBuilder {
 	return &SymbolTableBuilder{
-		BaseAnalyzer: &BaseAnalyzer{
+		BaseAnalyzer: &BaseAnalyzer{ // Initialize BaseAnalyzer
 			BasebbyCBLVisitor: &parser.BasebbyCBLVisitor{},
 			errors:            []SemanticError{},
 			fixedFormat:       true,
@@ -131,11 +123,39 @@ func NewSymbolTableBuilder() *SymbolTableBuilder {
 	}
 }
 
+func (v *SymbolTableBuilder) VisitProgram(ctx *parser.ProgramContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *SymbolTableBuilder) VisitDataDivision(ctx *parser.DataDivisionContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *SymbolTableBuilder) VisitChildren(node antlr.RuleNode) interface{} {
+	for _, child := range node.GetChildren() {
+		if child == nil {
+			continue // Skip nil children
+		}
+		if parseTreeChild, ok := child.(antlr.ParseTree); ok && parseTreeChild != nil {
+			parseTreeChild.Accept(v) // Pass the concrete visitor (SymbolTableBuilder)
+		}
+	}
+	return nil
+}
+
 func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interface{} {
 	levelStr := ctx.LevelNumber().GetText()
 	level, err := strconv.Atoi(levelStr)
 	if err != nil {
 		v.addError(fmt.Sprintf("Level number '%s' is not a valid integer", levelStr), ctx.GetStart().GetLine())
+		return nil
+	}
+
+	var name string
+	if id := ctx.Identifier(); id != nil {
+		name = id.GetText()
+	} else {
+		v.addError("Data entry without an identifier", ctx.GetStart().GetLine())
 		return nil
 	}
 
@@ -150,21 +170,16 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 		return nil
 	}
 
-	var name string
-	if id := ctx.Identifier(); id != nil {
-		name = id.GetText()
-	} else {
-		v.addError("Data entry without an identifier", ctx.GetStart().GetLine())
-		return nil
-	}
+	field := &FieldSymbol{name: name, level: level}
 
 	if name != "" {
-		if _, exists := v.symbolTable.rootScope.fields[name]; exists {
+		uname := strings.ToUpper(name)
+		if _, exists := v.symbolTable.rootScope.fields[uname]; exists {
 			v.addError(fmt.Sprintf("Duplicate field name '%s'", name), ctx.GetStart().GetLine())
 		}
+		field.name = uname
+		v.symbolTable.rootScope.fields[uname] = field
 	}
-
-	field := &FieldSymbol{name: name, level: level}
 
 	for len(v.parentStack) > 0 && v.parentStack[len(v.parentStack)-1].level >= level {
 		v.parentStack = v.parentStack[:len(v.parentStack)-1]
@@ -204,10 +219,6 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 		}
 	}
 
-	if name != "" {
-		v.symbolTable.rootScope.fields[name] = field
-	}
-
 	return v.VisitChildren(ctx)
 }
 
@@ -239,7 +250,7 @@ func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
 			}
 		}
 		switch char {
-		case '9':
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			hasNumeric = true
 			length += repetition
 		case 'A':
@@ -277,7 +288,7 @@ func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
 	if isMixed {
 		v.addError("PICTURE clause cannot mix alphanumeric/alphabetic with numeric-only characters like '9'", line)
 	}
-	if hasAlpha && hasAlpha {
+	if hasAlpha && hasAlphaNum {
 		v.addError("PICTURE clause cannot be both alphabetic ('A') and alphanumeric ('X')", line)
 	}
 	pt.isNumeric = hasNumeric && !hasAlpha && !hasAlphaNum
@@ -359,11 +370,23 @@ func NewSemanticChecker(symbolTable *SymbolTable) *SemanticChecker {
 }
 
 func (v *SemanticChecker) VisitParagraph(ctx *parser.ParagraphContext) interface{} {
-	name := ctx.Identifier().GetText()
+	name := strings.ToUpper(ctx.Identifier().GetText())
 	if p, exists := v.symbolTable.paragraphs[name]; exists {
 		v.currentPara = p
 	}
 	return v.VisitChildren(ctx)
+}
+
+func (v *SemanticChecker) VisitChildren(node antlr.RuleNode) interface{} {
+	for _, child := range node.GetChildren() {
+		if child == nil {
+			continue // Skip nil children
+		}
+		if parseTreeChild, ok := child.(antlr.ParseTree); ok && parseTreeChild != nil {
+			parseTreeChild.Accept(v) // Pass the concrete visitor (SemanticChecker)
+		}
+	}
+	return nil
 }
 
 func (v *SemanticChecker) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
@@ -613,7 +636,7 @@ func (v *SemanticChecker) VisitCallStmt(ctx *parser.CallStmtContext) interface{}
 			v.addError("CALL target must be literal or identifier", ctx.GetStart().GetLine())
 			return v.VisitChildren(ctx)
 		}
-		callTargetName = segs[0]
+		callTargetName = strings.ToUpper(segs[0])
 		field := v.getFieldFromExpr(targetExpr, ctx.GetStart().GetLine())
 		if field != nil {
 			if !field.initialized {
@@ -778,11 +801,11 @@ func (v *SemanticChecker) isNumeric(expr parser.IExprContext) bool {
 func getIdentifierSegments(expr parser.IExprContext) []string {
 	switch e := expr.(type) {
 	case *parser.IdExprContext:
-		return []string{e.GetText()}
+		return []string{strings.ToUpper(e.GetText())}
 	case *parser.QualifiedIdExprContext:
 		segs := []string{}
 		for _, seg := range e.QualifiedId().AllIdentifierSegment() {
-			segs = append(segs, seg.GetText())
+			segs = append(segs, strings.ToUpper(seg.GetText()))
 		}
 		return segs
 	default:
@@ -862,9 +885,9 @@ func deepCopyChildren(children []*FieldSymbol, parent *FieldSymbol) []*FieldSymb
 
 // --- Main Analysis Function ---
 
-func Analyze(tree antlr.ParseTree) []SemanticError {
+func Analyze(tree antlr.ParseTree) (*SymbolTable, []SemanticError) {
 	if tree == nil {
-		return []SemanticError{}
+		return nil, []SemanticError{}
 	}
 	builder := NewSymbolTableBuilder()
 	tree.Accept(builder)
@@ -874,5 +897,5 @@ func Analyze(tree antlr.ParseTree) []SemanticError {
 	errors = append(errors, checker.errors...)
 	checker.analyzeFlow()
 	errors = append(errors, checker.errors...)
-	return errors
+	return builder.symbolTable, errors
 }
