@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MIXEDCASE.
+       DATA DIVISION.
+         01 Var PicTuRe Is 99.
+       PROCEDURE DIVISION.
+           MOVE 5 TO v a r.
+           DISPLAY VAR.

@@ -1,0 +1,13 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ALTERGOTO.
+       PROCEDURE DIVISION.
+       PATH.
+           GO TO SKIP.
+       MAIN.
+           ALTER PATH TO PROCEED TO DONE.
+           GO TO PATH.
+       SKIP.
+           DISPLAY "Skipped".
+       DONE.
+           DISPLAY "Altered".
+           STOP.

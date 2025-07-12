@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SIGNALERROR.
+       PROCEDURE DIVISION.
+           SIGNAL HANDLER ON ERROR.
+           DIVIDE 0 INTO 10 GIVING RES.
+           STOP.
+       HANDLER.
+           DISPLAY "Error handled".
+           STOP.

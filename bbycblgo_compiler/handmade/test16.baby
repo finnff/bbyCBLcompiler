@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+           PROGRAM-ID. Test.
+       DATA DIVISION.
+         01 Name PICTURE IS X(5).
+       PROCEDURE DIVISION.
+           MOVE "Hello" TO name.
+           DISPLAY name.

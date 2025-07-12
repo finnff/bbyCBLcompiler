@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PERFORMGOTO.
+       PROCEDURE DIVISION.
+       START.
+           PERFORM LOOPPARA 3 TIMES.
+           STOP.
+       LOOPPARA.
+           DISPLAY "Loop".
+           GO TO START.

@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"path/filepath"
+	path_filepath "path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -35,6 +35,7 @@ type ParseResult struct {
 	Duration            time.Duration
 	OriginalContent     string
 	PreprocessedContent string
+	OriginalFilePath    string
 }
 
 // CustomErrorListener implements the antlr.ErrorListener interface.
@@ -85,6 +86,7 @@ func parseFileCobol(filepath string) ParseResult {
 		Success:  false,
 		Error:    "",
 		Duration: 0,
+		OriginalFilePath: filepath,
 	}
 
 	file, err := os.Open(filepath)
@@ -146,7 +148,7 @@ func parseFileCobol(filepath string) ParseResult {
 
 func getTestFiles(dir string) ([]string, error) {
 	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err := path_filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -182,7 +184,7 @@ func runSequential(files []string, isFailedRun bool, printPassed bool, hideVerbo
 		} else {
 			failed++
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, i+1, len(files), result.Filename, result.Error)
-			copyFailedTest(file)
+			copyFailedTest(file, cfg.FailedDir)
 			if isFailedRun && !hideVerbose {
 				fmt.Printf("\n%s--- Original Content ---%s\n%s\n%s------------------------%s\n", ColorCyan, ColorReset, result.OriginalContent, ColorCyan, ColorReset)
 				fmt.Printf("\n%s--- Preprocessed Content ---%s\n%s\n%s----------------------------%s\n", ColorCyan, ColorReset, result.PreprocessedContent, ColorCyan, ColorReset)
@@ -246,7 +248,7 @@ func runParallel(files []string, isFailedRun bool, printPassed bool, hideVerbose
 		} else {
 			failed++
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, processed, len(files), result.Filename, result.Error)
-			copyFailedTest(result.Filename)
+			copyFailedTest(result.OriginalFilePath, cfg.FailedDir)
 			if isFailedRun && !hideVerbose {
 				fmt.Printf("\n%s--- Original Content ---%s\n%s\n%s------------------------%s\n", ColorCyan, ColorReset, result.OriginalContent, ColorCyan, ColorReset)
 				fmt.Printf("\n%s--- Preprocessed Content ---%s\n%s\n%s----------------------------%s\n", ColorCyan, ColorReset, result.PreprocessedContent, ColorCyan, ColorReset)
@@ -264,9 +266,9 @@ func runParallel(files []string, isFailedRun bool, printPassed bool, hideVerbose
 	fmt.Printf("Average per file: %.2fms\n", float64(totalTime.Nanoseconds())/float64(len(files))/1e6)
 }
 
-func copyFailedTest(filename string) {
-	sourceFile := filepath.Join(cfg.TestDir, filename)
-	destFile := filepath.Join(cfg.FailedDir, filename)
+func copyFailedTest(sourceFile string, destDir string) {
+	_, filename := path_filepath.Split(sourceFile)
+	destFile := path_filepath.Join(destDir, filename)
 	input, err := os.ReadFile(sourceFile)
 	if err != nil {
 		fmt.Printf("Failed to read failed test file: %v\n", err)

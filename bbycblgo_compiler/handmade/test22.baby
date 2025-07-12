@@ -1,0 +1,8 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FIGURATIVES.
+      * Comment with mixed case and code-like: MOVE ignored here.
+       DATA DIVISION.
+         01 Num PICTURE IS S99.
+       PROCEDURE DIVISION.
+           MOVE HIGH-VALUES TO Num.
+           DISPLAY Num.

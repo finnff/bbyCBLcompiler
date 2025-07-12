@@ -1,0 +1,13 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DIVREMAIN.
+       DATA DIVISION.
+         01 Num PICTURE IS 99.
+         01 Quot PICTURE IS 99.
+         01 Rem PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 10 TO Num.
+           DIVIDE 3 INTO Num GIVING Quot REMAINDER Rem.
+           EVALUATE Rem = 0
+               WHEN TRUE DISPLAY "Even divide"
+               WHEN OTHER DISPLAY "Remainder" Rem
+           END.

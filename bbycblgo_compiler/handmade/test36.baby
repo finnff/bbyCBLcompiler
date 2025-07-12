@@ -1,0 +1,10 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBGIVING.
+       DATA DIVISION.
+         01 A PICTURE IS 99.
+         01 B PICTURE IS 99.
+         01 Res PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 10 TO A B.
+           SUBTRACT 2 3 FROM A B GIVING Res.
+           DISPLAY Res.

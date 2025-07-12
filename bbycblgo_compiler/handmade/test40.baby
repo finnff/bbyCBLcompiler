@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. LOWADD.
+       DATA DIVISION.
+         01 Num1 PICTURE IS 99.
+         01 Num2 PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE LOW-VALUES TO Num1 Num2.
+           ADD 1 TO Num1 Num2.
+           DISPLAY Num1 Num2.

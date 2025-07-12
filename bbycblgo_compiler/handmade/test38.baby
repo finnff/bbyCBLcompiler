@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. LOOPBYNEG.
+       DATA DIVISION.
+         01 Count PICTURE IS S99.
+       PROCEDURE DIVISION.
+           MOVE 10 TO Count.
+           LOOP VARYING Count BY -2 UNTIL Count < 0
+               DISPLAY Count
+           END.

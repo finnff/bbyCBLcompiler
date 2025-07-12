@@ -1,0 +1,11 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NESTEDIF.
+       DATA DIVISION.
+         01 Val PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 0 TO Val.
+           IF Val > 0 THEN
+               DISPLAY "Positive"
+           ELSE
+               IF Val = 0 THEN DISPLAY "Zero" END
+               ELSE DISPLAY "Negative" END.

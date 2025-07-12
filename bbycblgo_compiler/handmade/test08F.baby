@@ -1,0 +1,4 @@
+       IDENTIFICATION DIVISION.
+       PROCEDURE DIVISION.
+           DISPLAY "Incorrect"
+     -"continuation" (should fail - no space after -)

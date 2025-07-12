@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ACCEPTDISPLAY.
+       DATA DIVISION.
+         01 InputVal PICTURE IS 99.
+       PROCEDURE DIVISION.
+           ACCEPT InputVal.
+           DISPLAY InputVal DELIMITED BY SPACE.

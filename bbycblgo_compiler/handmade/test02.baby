@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+       DATA DIVISION.
+         01 StudentName PICTURE IS XX.
+         01 student_age PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE "AB" TO studentname.
+           DISPLAY student_AGE.

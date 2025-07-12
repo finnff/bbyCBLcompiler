@@ -1,0 +1,10 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CONTRACTEDIF.
+       DATA DIVISION.
+         01 Val PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 5 TO Val.
+           IF Val = 3 OR 5 OR 7 THEN
+               DISPLAY "Odd prime"
+               NEXT SENTENCE.
+           DISPLAY "Other".

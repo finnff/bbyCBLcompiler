@@ -1,0 +1,6 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CONTINUATION.
+       PROCEDURE DIVISION.
+           DISPLAY "Hello" WITH NO ADVANCING
+      -       " World"
+      -       ".".

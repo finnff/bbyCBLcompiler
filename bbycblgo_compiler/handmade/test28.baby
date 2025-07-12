@@ -1,0 +1,11 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. LOOPCONDITIONS.
+       DATA DIVISION.
+         01 Counter PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 1 TO Counter.
+           LOOP WHILE Counter < 5
+               MULTIPLY 2 BY Counter
+               DISPLAY Counter
+           END.
+           STOP.

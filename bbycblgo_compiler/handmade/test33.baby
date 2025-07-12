@@ -1,0 +1,12 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EVALALSO.
+       DATA DIVISION.
+         01 X PICTURE IS 99.
+         01 Y PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 5 TO X.
+           MOVE 10 TO Y.
+           EVALUATE X ALSO Y
+               WHEN 1 THROUGH 5 ALSO 10 DISPLAY "Match1"
+               WHEN OTHER DISPLAY "No match"
+           END.

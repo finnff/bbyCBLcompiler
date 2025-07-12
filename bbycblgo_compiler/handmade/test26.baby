@@ -1,0 +1,11 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ADDGIVING.
+       DATA DIVISION.
+         01 A PICTURE IS 99.
+         01 B PICTURE IS 99.
+         01 Res PICTURE IS 99.
+       PROCEDURE DIVISION.
+           MOVE 2 TO A.
+           MOVE 3 TO B.
+           ADD A B GIVING Res.
+           DISPLAY Res.

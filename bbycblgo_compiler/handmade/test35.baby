@@ -1,0 +1,10 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PERFORMTHRU.
+       PROCEDURE DIVISION.
+           PERFORM PARA1 THROUGH PARA2.
+           STOP.
+       PARA1.
+           DISPLAY "Start".
+           NEXT SENTENCE.
+       PARA2.
+           DISPLAY "End".

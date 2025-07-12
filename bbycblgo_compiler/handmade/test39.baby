@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DELIMSIZE.
+       DATA DIVISION.
+         01 Str PICTURE IS X(10).
+       PROCEDURE DIVISION.
+           MOVE "HelloWorld" TO Str.
+           DISPLAY Str DELIMITED BY SIZE.

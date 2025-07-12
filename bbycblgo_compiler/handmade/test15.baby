@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       DATA DIVISION.
+           01 END PICTURE IS 99.
+           01 if PICTURE IS XX.
+       PROCEDURE DIVISION.
+           MOVE 10 TO END.
+           IF END = 10 THEN
+           DISPLAY "TRUE"
+           END-IF.
