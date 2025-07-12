@@ -98,17 +98,6 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 	codegen.builder = codegen.context.NewBuilder()
 	defer codegen.builder.Dispose()
 
-	if codegen.verbose {
-		fmt.Println("--- Symbol Table Contents ---")
-		if len(symbolTable.rootScope.fields) == 0 {
-			fmt.Println("Symbol table is empty!")
-		}
-		for name, field := range symbolTable.rootScope.fields {
-			fmt.Printf("Field: %s, Numeric: %v, Length: %d\n", name, field.picture.isNumeric, field.picture.length)
-		}
-		fmt.Println("---------------------------")
-	}
-
 	codegen.Visit(tree)
 
 	if err := llvm.VerifyModule(codegen.module, llvm.PrintMessageAction); err != nil {
@@ -127,6 +116,17 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 
 func (c *CodeGenerator) addError(msg string, line int) {
 	c.errors = append(c.errors, SemanticError{msg, line})
+}
+
+func (c *CodeGenerator) getFieldSymbol(name string, line int) *FieldSymbol {
+	uname := strings.ToUpper(name)
+	if fields, ok := c.symbolTable.rootScope.fields[uname]; ok && len(fields) > 0 {
+		// For now, just return the first field found. 
+		// A more robust solution would involve resolving qualified names.
+		return fields[0]
+	}
+	c.addError(fmt.Sprintf("Field '%s' not found in symbol table", name), line)
+	return nil
 }
 
 func (c *CodeGenerator) Visit(tree antlr.ParseTree) interface{} {
@@ -177,7 +177,8 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 		fmt.Println("Visiting Data Division")
 	}
 	for _, dataEntry := range ctx.AllDataEntry() {
-		if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(dataEntry.Identifier().GetText())]; ok {
+		fieldName := dataEntry.Identifier().GetText()
+		if field := c.getFieldSymbol(fieldName, dataEntry.GetStart().GetLine()); field != nil {
 			var global llvm.Value
 			if field.picture.isNumeric {
 				global = llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
@@ -246,8 +247,8 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 	}
 	for _, item := range ctx.AllDisplayItem() {
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
-			fieldName := strings.ToUpper(id.GetText())
-			if field, ok := c.symbolTable.rootScope.fields[fieldName]; ok {
+			fieldName := id.GetText()
+			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
 				printf := c.module.NamedFunction("printf")
 				destPtr := c.module.NamedGlobal(field.name)
 
@@ -284,10 +285,6 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 						fmt.Printf("Generated display for string field: %s\n", field.name)
 					}
 				}
-			} else {
-				if c.verbose {
-					fmt.Printf("Display error: Field %s not found in symbol table\n", fieldName)
-				}
 			}
 		}
 	}
@@ -306,8 +303,8 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 		fmt.Printf("Move from: %T (%s) to: %T (%s)\n", from, from.GetText(), to, to.GetText())
 	}
 
-	toField, ok := c.symbolTable.rootScope.fields[strings.ToUpper(to.GetText())]
-	if !ok {
+	toField := c.getFieldSymbol(to.GetText(), to.GetStart().GetLine())
+	if toField == nil {
 		if c.verbose {
 			fmt.Printf("Move error: Destination field %s not found in symbol table\n", to.GetText())
 		}

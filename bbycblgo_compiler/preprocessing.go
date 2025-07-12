@@ -13,6 +13,7 @@ import (
 func preprocessCobolAdvanced(lines []string) string {
 	var processed strings.Builder
 	lastWasNonSpace := false // Track if last character was non-space
+	wasContinuation := false // Track if the previous line was a continuation
 
 	for _, line := range lines {
 		var indicator byte
@@ -91,17 +92,23 @@ func preprocessCobolAdvanced(lines []string) string {
 				lastChar := trimmedLeft[len(trimmedLeft)-1]
 				lastWasNonSpace = lastChar != ' ' && lastChar != '\t'
 			}
+			wasContinuation = true // Mark that this was a continuation line
+			continue               // <--- forces the next source line to start a fresh logical line
 
 		} else if indicator != ' ' {
 			return "Error: Invalid indicator '" + string(indicator) + "' in line: " + line
 		} else { // Normal line processing
+			// If the previous line was a continuation, and this is a new normal line, add a newline
+			if wasContinuation {
+				processed.WriteString("\n")
+			}
 			// For normal lines, we should write the content from column 0 to 71 (0-indexed)
 			// to the processed string, preserving all leading spaces.
 			// The indicator (column 6) is already checked above.
 			fullLineContent := line[0:min(len(line), 72)]
 			processed.WriteString(fullLineContent)
 			processed.WriteString("\n")
-			lastWasNonSpace = false // Reset after newline
+			wasContinuation = false // Reset for normal lines
 		}
 	}
 

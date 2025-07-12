@@ -12,7 +12,7 @@ import (
 
 // Scope represents a lexical scope, holding symbols and a pointer to its parent scope.
 type Scope struct {
-	fields map[string]*FieldSymbol
+	fields map[string][]*FieldSymbol
 	parent *Scope
 }
 
@@ -112,10 +112,10 @@ func NewSymbolTableBuilder() *SymbolTableBuilder {
 		BaseAnalyzer: &BaseAnalyzer{ // Initialize BaseAnalyzer
 			BasebbyCBLVisitor: &parser.BasebbyCBLVisitor{},
 			errors:            []SemanticError{},
-			fixedFormat:       true,
+			fixedFormat:       false,
 		},
 		symbolTable: &SymbolTable{
-			rootScope:         &Scope{fields: make(map[string]*FieldSymbol)},
+			rootScope:         &Scope{fields: make(map[string][]*FieldSymbol)},
 			paragraphs:        make(map[string]*ParagraphSymbol),
 			orderedParagraphs: []*ParagraphSymbol{},
 		},
@@ -159,41 +159,50 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 		return nil
 	}
 
-	if level == 1 || level == 77 {
+	if level == 1 { // Only level 01 must be in Area A
 		v.checkAreaA(ctx.LevelNumber().GetStart(), fmt.Sprintf("Level number %s", levelStr))
-	} else if level >= 2 && level <= 49 {
+	} else if level >= 2 && level <= 49 { // Levels 02-49 must be in Area B
 		v.checkAreaB(ctx.LevelNumber().GetStart(), fmt.Sprintf("Level number %s", levelStr))
 	}
 
-	if !((level >= 1 && level <= 49) || level == 77) {
-		v.addError(fmt.Sprintf("Invalid level number: must be 01-49 or 77, got %d", level), ctx.GetStart().GetLine())
+	if !((level >= 0 && level <= 99)) { // Allow level 00-99
+		v.addError(fmt.Sprintf("Invalid level number: must be 00-99, got %d", level), ctx.GetStart().GetLine())
 		return nil
 	}
 
-	field := &FieldSymbol{name: name, level: level}
+	uname := strings.ToUpper(name) // Convert to uppercase once
+	field := &FieldSymbol{name: uname, level: level} // Use uname for the field name
 
-	if name != "" {
-		uname := strings.ToUpper(name)
-		if _, exists := v.symbolTable.rootScope.fields[uname]; exists {
-			v.addError(fmt.Sprintf("Duplicate field name '%s'", name), ctx.GetStart().GetLine())
-		}
-		field.name = uname
-		v.symbolTable.rootScope.fields[uname] = field
-	}
-
+	// Manage parent stack and add to symbol table
 	for len(v.parentStack) > 0 && v.parentStack[len(v.parentStack)-1].level >= level {
 		v.parentStack = v.parentStack[:len(v.parentStack)-1]
 	}
 
 	if len(v.parentStack) > 0 {
+		// This is a child field
 		parent := v.parentStack[len(v.parentStack)-1]
-		if field.level <= parent.level {
-			v.addError(fmt.Sprintf("Invalid level number %d for field '%s'. Must be greater than parent's level %d", field.level, field.name, parent.level), ctx.GetStart().GetLine())
+
+		// Check for duplicate name among siblings
+		for _, sibling := range parent.children {
+			if sibling.name == uname {
+				v.addError(fmt.Sprintf("Duplicate field name '%s' within the same parent scope", name), ctx.GetStart().GetLine())
+				return nil // Stop processing this data entry
+			}
 		}
+
 		field.parent = parent
 		parent.children = append(parent.children, field)
+	} else {
+		// This is a top-level (01, 77, or 99) field
+		currentSlice, ok := v.symbolTable.rootScope.fields[uname]
+		if !ok {
+			currentSlice = make([]*FieldSymbol, 0) // Initialize an empty slice
+		}
+		currentSlice = append(currentSlice, field)
+		v.symbolTable.rootScope.fields[uname] = currentSlice
 	}
-	v.parentStack = append(v.parentStack, field)
+
+	v.parentStack = append(v.parentStack, field) // Add current field to stack
 
 	if picCtx := ctx.PictureClause(); picCtx != nil {
 		if picPatternCtx := picCtx.PicturePattern(); picPatternCtx != nil {
@@ -223,6 +232,7 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 }
 
 func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
+	pic = strings.ToUpper(pic) // Convert picture string to uppercase
 	pt := &PictureType{raw: pic}
 	hasNumeric, hasAlpha, hasAlphaNum := false, false, false
 	sCount, vCount := 0, 0
@@ -253,15 +263,20 @@ func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			hasNumeric = true
 			length += repetition
-		case 'A':
+		case 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'Q', 'R', 'T', 'U', 'W', 'Y': // Exclude S, X, Z, P for specific handling
 			hasAlpha = true
 			length += repetition
 		case 'X':
 			hasAlphaNum = true
 			length += repetition
 		case 'S':
-			sCount += 1
-			hasNumeric = true
+			if i == 0 { // 'S' is a sign only if it's the first character
+				sCount += 1
+				hasNumeric = true
+			} else { // Otherwise, it's an alphabetic character
+				hasAlpha = true
+				length += repetition
+			}
 		case 'V':
 			vCount += 1
 			hasNumeric = true
@@ -278,19 +293,8 @@ func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
 	if vCount > 1 {
 		v.addError("PICTURE clause can only contain one 'V' for an implicit decimal point", line)
 	}
-	isMixed := false
-	for _, c := range pic {
-		if (c == '9' || c == 'V' || c == 'Z' || c == 'P') && (hasAlpha || hasAlphaNum) {
-			isMixed = true
-			break
-		}
-	}
-	if isMixed {
-		v.addError("PICTURE clause cannot mix alphanumeric/alphabetic with numeric-only characters like '9'", line)
-	}
-	if hasAlpha && hasAlphaNum {
-		v.addError("PICTURE clause cannot be both alphabetic ('A') and alphanumeric ('X')", line)
-	}
+	
+	
 	pt.isNumeric = hasNumeric && !hasAlpha && !hasAlphaNum
 	pt.isAlpha = hasAlpha
 	pt.isAlphaNum = hasAlphaNum
@@ -320,8 +324,13 @@ func (v *SymbolTableBuilder) VisitParagraph(ctx *parser.ParagraphContext) interf
 					continue
 				}
 				paramName := segs[0]
-				if field, exists := v.symbolTable.rootScope.fields[paramName]; exists {
-					paraSymbol.params = append(paraSymbol.params, field)
+				if fieldSlice, exists := v.symbolTable.rootScope.fields[paramName]; exists {
+					if len(fieldSlice) > 0 {
+						// Use the first field in the slice
+						paraSymbol.params = append(paraSymbol.params, fieldSlice[0])
+					} else {
+						v.addError(fmt.Sprintf("Parameter '%s' in USING clause for paragraph '%s' not found in Data Division", paramName, name), using.GetStart().GetLine())
+					}
 				} else {
 					v.addError(fmt.Sprintf("Parameter '%s' in USING clause for paragraph '%s' not found in Data Division", paramName, name), using.GetStart().GetLine())
 				}
@@ -360,7 +369,7 @@ func NewSemanticChecker(symbolTable *SymbolTable) *SemanticChecker {
 		BaseAnalyzer: &BaseAnalyzer{
 			BasebbyCBLVisitor: &parser.BasebbyCBLVisitor{},
 			errors:            []SemanticError{},
-			fixedFormat:       true,
+			fixedFormat:       false,
 		},
 		symbolTable:  symbolTable,
 		cfg:          make(map[string][]string),
@@ -458,21 +467,31 @@ func (v *SemanticChecker) analyzeFlow() {
 
 func (v *SemanticChecker) VisitDataEntry(ctx *parser.DataEntryContext) interface{} {
 	name := ctx.Identifier().GetText()
-	field, exists := v.symbolTable.rootScope.fields[name]
-	if !exists || field.likeRef == "" {
+
+	// Resolve the current field being processed
+	currentField := v.getFieldFromExpr(ctx.Identifier(), ctx.GetStart().GetLine())
+	if currentField == nil {
+		// Error already added by getFieldFromExpr if not found
 		return nil
 	}
-	likeTarget, targetExists := v.symbolTable.rootScope.fields[field.likeRef]
-	if !targetExists {
-		v.addError(fmt.Sprintf("Field '%s' in LIKE clause for '%s' not found", field.likeRef, name), ctx.GetStart().GetLine())
-		return nil
+
+	if ctx.LikeClause() != nil {
+		allSegs := ctx.LikeClause().AllIdentifierSegment()
+		if len(allSegs) > 0 {
+			// Resolve the target of the LIKE clause
+			likeTarget := v.getFieldFromExpr(allSegs[0], ctx.GetStart().GetLine()) // Assuming simple identifier for now
+			if likeTarget == nil {
+				v.addError(fmt.Sprintf("Field '%s' in LIKE clause for '%s' not found", currentField.likeRef, name), ctx.GetStart().GetLine())
+				return nil
+			}
+			if likeTarget == currentField {
+				v.addError(fmt.Sprintf("Recursive LIKE clause for field '%s'", name), ctx.GetStart().GetLine())
+				return nil
+			}
+			currentField.picture = likeTarget.picture
+			currentField.children = deepCopyChildren(likeTarget.children, currentField)
+		}
 	}
-	if likeTarget == field {
-		v.addError(fmt.Sprintf("Recursive LIKE clause for field '%s'", name), ctx.GetStart().GetLine())
-		return nil
-	}
-	field.picture = likeTarget.picture
-	field.children = deepCopyChildren(likeTarget.children, field)
 	return nil
 }
 
@@ -798,23 +817,27 @@ func (v *SemanticChecker) isNumeric(expr parser.IExprContext) bool {
 	return picType != nil && picType.isNumeric
 }
 
-func getIdentifierSegments(expr parser.IExprContext) []string {
-	switch e := expr.(type) {
+func getIdentifierSegments(node antlr.ParseTree) []string {
+	switch n := node.(type) {
 	case *parser.IdExprContext:
-		return []string{strings.ToUpper(e.GetText())}
+		return []string{strings.ToUpper(n.GetText())}
 	case *parser.QualifiedIdExprContext:
 		segs := []string{}
-		for _, seg := range e.QualifiedId().AllIdentifierSegment() {
+		for _, seg := range n.QualifiedId().AllIdentifierSegment() {
 			segs = append(segs, strings.ToUpper(seg.GetText()))
 		}
 		return segs
+	case *parser.IdentifierContext: // Handle direct IdentifierContext
+		return []string{strings.ToUpper(n.GetText())}
+	case *parser.IdentifierSegmentContext: // Handle direct IdentifierSegmentContext
+		return []string{strings.ToUpper(n.GetText())}
 	default:
 		return nil
 	}
 }
 
-func (v *SemanticChecker) getFieldFromExpr(expr parser.IExprContext, line int) *FieldSymbol {
-	segs := getIdentifierSegments(expr)
+func (v *SemanticChecker) getFieldFromExpr(node antlr.ParseTree, line int) *FieldSymbol {
+	segs := getIdentifierSegments(node)
 	if segs == nil {
 		return nil
 	}
@@ -828,11 +851,17 @@ func (v *SemanticChecker) resolveQualifiedName(segs []string, line int) *FieldSy
 	targetName := segs[0]
 	qualifierNames := segs[1:]
 	var candidates []*FieldSymbol
-	for _, field := range v.symbolTable.rootScope.fields {
-		if field.name == targetName {
-			candidates = append(candidates, field)
+
+	// Iterate over all slices of FieldSymbols in rootScope.fields
+	for _, fieldSlice := range v.symbolTable.rootScope.fields {
+		// Iterate over each FieldSymbol within the slice
+		for _, field := range fieldSlice {
+			if field.name == targetName {
+				candidates = append(candidates, field)
+			}
 		}
 	}
+
 	if len(candidates) == 0 {
 		return nil
 	}

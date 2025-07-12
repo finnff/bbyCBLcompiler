@@ -333,14 +333,16 @@ func parseFile(filepath string) {
 	// Print Symbol Table
 	fmt.Printf("\n%s--- Symbol Table ---%s\n", ColorCyan, ColorReset)
 	// Use the returned symbolTable here
-	for name, symbol := range symbolTable.rootScope.fields {
-		fmt.Printf("  %s: &{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x children:[", name, symbol.name, symbol.level, symbol.picture, symbol.likeRef, symbol.occurs, symbol.initialized, symbol.parent)
-		for i, child := range symbol.children {
-			fmt.Printf("&{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x}", child.name, child.level, child.picture, child.likeRef, child.occurs, child.initialized, child.parent)
-			if i < len(symbol.children)-1 {
-				fmt.Printf(" ")
+	for name, fields := range symbolTable.rootScope.fields {
+		for _, symbol := range fields {
+			fmt.Printf("  %s: &{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x children:[", name, symbol.name, symbol.level, symbol.picture, symbol.likeRef, symbol.occurs, symbol.initialized, symbol.parent)
+			for i, child := range symbol.children {
+				fmt.Printf("&{name:%s level:%d picture:0x%x likeRef:%s occurs:%d initialized:%t parent:0x%x}", child.name, child.level, child.picture, child.likeRef, child.occurs, child.initialized, child.parent)
+				if i < len(symbol.children)-1 {
+					fmt.Printf(" ")
+				}
 			}
+			fmt.Println("]}")
 		}
-		fmt.Println("]}")
 	}
 }
