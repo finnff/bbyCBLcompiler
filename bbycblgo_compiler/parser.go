@@ -331,7 +331,7 @@ func parseFile(filepath string) {
 	tree.Accept(astPrinter)
 
 	// Print Symbol Table
-	fmt.Printf("\n%s--- Symbol Table ---%s\n", ColorCyan, ColorReset)
+	fmt.Printf("%s--- Symbol Table ---%s\n", ColorCyan, ColorReset)
 	// Use the returned symbolTable here
 	for name, fields := range symbolTable.rootScope.fields {
 		for _, symbol := range fields {
@@ -345,4 +345,5 @@ func parseFile(filepath string) {
 			fmt.Println("]}")
 		}
 	}
+	fmt.Printf("\n%s--------------------%s\n\n", ColorCyan, ColorReset)
 }

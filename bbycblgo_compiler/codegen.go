@@ -191,7 +191,7 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 				global.SetAlignment(1)
 			}
 			if c.verbose {
-				fmt.Printf("Created global variable: %s\n", global.Name())
+				fmt.Printf("Created global variable: %s (Value: %v)\n", global.Name(), global)
 			}
 		}
 	}
@@ -205,16 +205,28 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 
 	// Declare printf
 	printfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
-	llvm.AddFunction(c.module, "printf", printfType)
+	printfFunc := llvm.AddFunction(c.module, "printf", printfType)
+	if printfFunc.IsNil() {
+		c.addError("Failed to declare printf function", ctx.GetStart().GetLine())
+		return nil
+	}
 
-	// Declare llvm.memcpy
+	// Declare llvm.memcpy.p0.p0.i64
 	memcpyType := llvm.FunctionType(c.context.VoidType(), []llvm.Type{
 		llvm.PointerType(c.context.Int8Type(), 0), // dest
 		llvm.PointerType(c.context.Int8Type(), 0), // src
 		c.context.Int64Type(),                     // len
 		c.context.Int1Type(),                      // isvolatile
 	}, false)
-	llvm.AddFunction(c.module, "llvm.memcpy.p0i8.p0i8.i64", memcpyType)
+	memcpyFunc := c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
+	if memcpyFunc.IsNil() {
+		// If not found, add it. This handles cases where it might not be implicitly declared by LLVM.
+		memcpyFunc = llvm.AddFunction(c.module, "llvm.memcpy.p0.p0.i64", memcpyType)
+		if memcpyFunc.IsNil() {
+			c.addError("Failed to declare llvm.memcpy.p0.p0.i64 function", ctx.GetStart().GetLine())
+			return nil
+		}
+	}
 
 	// Create main function
 	mainFuncType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{}, false)
@@ -250,6 +262,10 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 			fieldName := id.GetText()
 			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
 				printf := c.module.NamedFunction("printf")
+				if printf.IsNil() {
+					c.addError("printf function not found", id.GetStart().GetLine())
+					continue
+				}
 				destPtr := c.module.NamedGlobal(field.name)
 
 				if destPtr.IsNil() {
@@ -261,7 +277,8 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 
 				if field.picture.isNumeric {
 					formatStr := c.builder.CreateGlobalStringPtr("%d\n", ".str_int")
-					loadedVar := c.builder.CreateLoad(destPtr.GlobalValueType(), destPtr, "")
+					// Load the integer value from the global variable
+					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
 					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{formatStr, loadedVar}, "")
 					if c.verbose {
 						fmt.Printf("Generated display for numeric field: %s\n", field.name)
@@ -274,7 +291,8 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 					}
-					gep := c.builder.CreateInBoundsGEP(destPtr.GlobalValueType(), destPtr, indices, "")
+					// Get a pointer to the first element of the array (char*)
+					gep := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), field.picture.length), destPtr, indices, "")
 
 					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{
 						formatStr,
@@ -315,9 +333,12 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 	}
 
 	destPtr := c.module.NamedGlobal(toField.name)
+	if c.verbose {
+		fmt.Printf("Retrieved global variable %s: %v (Type: %v, IsGlobal: %t)\n", toField.name, destPtr, destPtr.Type(), destPtr.IsAGlobalVariable())
+	}
 	if destPtr.IsNil() {
 		if c.verbose {
-			fmt.Printf("Move error: Global variable %s not found\n", toField.name)
+			fmt.Printf("Move error: Global variable %s not found or is nil after retrieval\n", toField.name)
 		}
 		return nil
 	}
@@ -356,15 +377,24 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 				llvm.ConstInt(c.context.Int32Type(), 0, false),
 			}
 
-			destGEP := c.builder.CreateInBoundsGEP(destPtr.GlobalValueType(), destPtr, indices, "")
-			srcGEP := c.builder.CreateInBoundsGEP(globalStr.GlobalValueType(), globalStr, indices, "")
+			// Reconstruct the destination pointer type as a pointer to an array of i8
+			destType := llvm.PointerType(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), 0)
+			destGEP := c.builder.CreateInBoundsGEP(destType, destPtr, indices, "")
+
+			// Reconstruct the source pointer type as a pointer to an array of i8
+			srcType := llvm.PointerType(llvm.ArrayType(c.context.Int8Type(), int(uint64(strLen+1))), 0) // +1 for null terminator
+			srcGEP := c.builder.CreateInBoundsGEP(srcType, globalStr, indices, "")
 
 			copySize := strLen
 			if toField.picture.length < copySize {
 				copySize = toField.picture.length
 			}
 
-			memcpy := c.module.NamedFunction("llvm.memcpy.p0i8.p0i8.i64")
+			memcpy := c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
+			if memcpy.IsNil() {
+				c.addError("llvm.memcpy.p0.p0.i64 function not found", from.GetStart().GetLine())
+				return nil
+			}
 			c.builder.CreateCall(memcpy.GlobalValueType(), memcpy, []llvm.Value{
 				destGEP,
 				srcGEP,
