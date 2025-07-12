@@ -245,7 +245,7 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 					}
-					gep := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), destPtr, indices, "")
+					gep := c.builder.CreateGEP(destPtr.GlobalValueType(), destPtr, indices, "")
 
 					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{
 						formatStr,
@@ -260,6 +260,9 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 }
 
 func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
+	// TODO: The GEP instruction is not being generated correctly.
+	// I have tried several combinations of parameters, but the main function is always empty.
+	// I am not sure what is wrong. I am leaving the code as it is for now.
 	if c.verbose {
 		fmt.Println("Visiting Move Stmt")
 	}
@@ -284,8 +287,8 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 					llvm.ConstInt(c.context.Int32Type(), 0, false),
 				}
 
-				destGEP := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), destPtr, indices, "")
-				srcGEP := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), globalStr, indices, "")
+				destGEP := c.builder.CreateGEP(destPtr.GlobalValueType(), destPtr, indices, "")
+				srcGEP := c.builder.CreateGEP(globalStr.GlobalValueType(), globalStr, indices, "")
 
 				copySize := strLen
 				if toField.picture.length < copySize {

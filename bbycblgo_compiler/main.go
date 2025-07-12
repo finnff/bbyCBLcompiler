@@ -8,6 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"bufio"
+	"strings"
+
+	"bbycblgo_compiler/parser"
+	"github.com/antlr4-go/antlr/v4"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -295,4 +300,92 @@ func generateParser() {
 		log.Fatalf("Failed to generate parser: %v", err)
 	}
 	fmt.Printf("Parser generated in %s/\n", PARSER_DIR)
+}
+
+func compileFile(filepath string, verbose bool) {
+	if verbose {
+		parseFile(filepath)
+	}
+	fmt.Printf("Compiling %s\n", filepath)
+	file, err := os.Open(filepath)
+	if err != nil {
+		log.Fatalf("Failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatalf("Failed to read file: %v", err)
+	}
+
+	processedText := preprocessCobolAdvanced(lines)
+	input := antlr.NewInputStream(processedText)
+	lexer := parser.NewbbyCBLLexer(input)
+	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+	p := parser.NewbbyCBLParser(stream)
+
+	errorListener := NewCustomErrorListener()
+	p.RemoveErrorListeners()
+	p.AddErrorListener(errorListener)
+	lexer.RemoveErrorListeners()
+	lexer.AddErrorListener(errorListener)
+
+	tree := p.Program()
+
+	if errorListener.HasError {
+		fmt.Printf("%sSyntax errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range errorListener.Errors {
+			fmt.Printf("- %s\n", e)
+		}
+		return
+	}
+
+	builder := NewSymbolTableBuilder()
+	tree.Accept(builder)
+	if len(builder.errors) > 0 {
+		fmt.Printf("%sSemantic errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range builder.errors {
+			fmt.Printf("- line %d: %s\n", e.line, e.msg)
+		}
+		return
+	}
+
+	checker := NewSemanticChecker(builder.symbolTable)
+	tree.Accept(checker)
+	checker.analyzeFlow()
+	if len(checker.errors) > 0 {
+		fmt.Printf("%sSemantic errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range checker.errors {
+			fmt.Printf("- line %d: %s\n", e.line, e.msg)
+		}
+		return
+	}
+
+	// Generate LLVM IR
+	ir, codegenErrors := Generate(tree, builder.symbolTable, verbose, filepath)
+	if len(codegenErrors) > 0 {
+		fmt.Printf("%sCode generation errors in %s:%s\n", ColorRed, filepath, ColorReset)
+		for _, e := range codegenErrors {
+			fmt.Printf("- line %d: %s\n", e.line, e.msg)
+		}
+		return
+	}
+
+	// Write IR to file
+	outputFile := strings.TrimSuffix(filepath, ".baby") + ".ll"
+	err = os.WriteFile(outputFile, []byte(ir), 0644)
+	if err != nil {
+		log.Fatalf("Failed to write LLVM IR to file: %v", err)
+	}
+
+	exeFile, err := CompileIRToExecutable(outputFile)
+	if err != nil {
+		log.Fatalf("Failed to compile LLVM IR: %v", err)
+	}
+
+	fmt.Printf("%sSuccessfully compiled %s to %s%s\n", ColorGreen, filepath, exeFile, ColorReset)
 }
