@@ -5,15 +5,21 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/antlr4-go/antlr/v4"
+	"tinygo.org/x/go-llvm"
 )
+
+var llvmInit sync.Once
 
 // CodeGenerator holds the state for LLVM IR generation.
 type CodeGenerator struct {
 	*parser.BasebbyCBLVisitor
-	globalBuilder  strings.Builder
-	mainBuilder    strings.Builder
+	context        llvm.Context
+	module         llvm.Module
+	builder        llvm.Builder
+	targetData     llvm.TargetData
 	symbolTable    *SymbolTable
 	errors         []SemanticError
 	strCounter     int
@@ -40,22 +46,71 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 	if tree == nil {
 		return "", []SemanticError{}
 	}
+
+	llvmInit.Do(func() {
+		llvm.InitializeAllTargets()
+		llvm.InitializeAllTargetMCs()
+		llvm.InitializeAllAsmParsers()
+		llvm.InitializeAllAsmPrinters()
+		llvm.InitializeNativeTarget()
+		llvm.InitializeNativeAsmPrinter()
+	})
+
 	codegen := NewCodeGenerator(symbolTable, verbose, sourceFilename)
-	var finalIR strings.Builder
+	codegen.context = llvm.NewContext()
+	defer codegen.context.Dispose()
+
+	var target llvm.Target
+	var err error
+
+	defaultTriple := llvm.DefaultTargetTriple()
+	target, err = llvm.GetTargetFromTriple(defaultTriple)
+	if err != nil {
+		fallbacks := []string{
+			"x86_64-unknown-linux-gnu",
+			"x86_64-pc-linux-gnu",
+			"x86_64-linux-gnu",
+		}
+		for _, fallback := range fallbacks {
+			target, err = llvm.GetTargetFromTriple(fallback)
+			if err == nil {
+				defaultTriple = fallback
+				break
+			}
+		}
+		if err != nil {
+			return "", []SemanticError{{
+				msg:  fmt.Sprintf("Unable to find suitable target: %v", err),
+				line: 0,
+			}}
+		}
+	}
+
+	targetMachine := target.CreateTargetMachine(defaultTriple, "", "", llvm.CodeGenLevelDefault, llvm.RelocDefault, llvm.CodeModelDefault)
+	codegen.targetData = targetMachine.CreateTargetData()
 
 	moduleID := strings.TrimSuffix(filepath.Base(sourceFilename), filepath.Ext(sourceFilename))
-	finalIR.WriteString(fmt.Sprintf("; ModuleID = '%s'\n", moduleID))
-	finalIR.WriteString(fmt.Sprintf("source_filename = \"%s\"\n\n", sourceFilename))
+	codegen.module = codegen.context.NewModule(moduleID)
+	codegen.module.SetDataLayout(codegen.targetData.String())
+	codegen.module.SetTarget(defaultTriple)
+
+	codegen.builder = codegen.context.NewBuilder()
+	defer codegen.builder.Dispose()
 
 	codegen.Visit(tree)
 
-	finalIR.WriteString(codegen.globalBuilder.String())
-	finalIR.WriteString(codegen.mainBuilder.String())
-
-	if codegen.verbose {
-		fmt.Println(finalIR.String())
+	if err := llvm.VerifyModule(codegen.module, llvm.PrintMessageAction); err != nil {
+		return "", []SemanticError{{
+			msg:  fmt.Sprintf("LLVM module verification failed: %v", err),
+			line: 0,
+		}}
 	}
-	return finalIR.String(), codegen.errors
+
+	finalIR := codegen.module.String()
+	if codegen.verbose {
+		fmt.Println(finalIR)
+	}
+	return finalIR, codegen.errors
 }
 
 func (c *CodeGenerator) addError(msg string, line int) {
@@ -112,9 +167,14 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 	for _, dataEntry := range ctx.AllDataEntry() {
 		if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(dataEntry.Identifier().GetText())]; ok {
 			if field.picture.isNumeric {
-				c.globalBuilder.WriteString(fmt.Sprintf("@%s = common global i32 0, align 4\n", field.name))
+				global := llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
+				global.SetInitializer(llvm.ConstInt(c.context.Int32Type(), 0, false))
+				global.SetAlignment(4)
 			} else {
-				c.globalBuilder.WriteString(fmt.Sprintf("@%s = common global [%d x i8] zeroinitializer, align 1\n", field.name, field.picture.length))
+				globalType := llvm.ArrayType(c.context.Int8Type(), field.picture.length)
+				global := llvm.AddGlobal(c.module, globalType, field.name)
+				global.SetInitializer(llvm.ConstNull(globalType))
+				global.SetAlignment(1)
 			}
 		}
 	}
@@ -125,16 +185,25 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	if c.verbose {
 		fmt.Println("Visiting Procedure Division")
 	}
-	var procBuilder strings.Builder
-	procBuilder.WriteString("declare i32 @printf(i8*, ...)\n")
-	procBuilder.WriteString("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)\n\n")
-	procBuilder.WriteString("@.str_int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1\n")
-	procBuilder.WriteString("@.str_nl = private unnamed_addr constant [2 x i8] c\"\\0A\\00\", align 1\n")
 
-	c.globalBuilder.WriteString(procBuilder.String())
+	// Declare printf
+	printfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
+	llvm.AddFunction(c.module, "printf", printfType)
 
-	c.mainBuilder.WriteString("\ndefine i32 @main() {\n")
-	c.mainBuilder.WriteString("entry:\n")
+	// Declare llvm.memcpy
+	memcpyType := llvm.FunctionType(c.context.VoidType(), []llvm.Type{
+		llvm.PointerType(c.context.Int8Type(), 0), // dest
+		llvm.PointerType(c.context.Int8Type(), 0), // src
+		c.context.Int64Type(),                     // len
+		c.context.Int1Type(),                      // isvolatile
+	}, false)
+	llvm.AddFunction(c.module, "llvm.memcpy.p0i8.p0i8.i64", memcpyType)
+
+	// Create main function
+	mainFuncType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{}, false)
+	mainFunc := llvm.AddFunction(c.module, "main", mainFuncType)
+	entryBlock := c.context.AddBasicBlock(mainFunc, "entry")
+	c.builder.SetInsertPointAtEnd(entryBlock)
 
 	for _, p := range ctx.AllParagraph() {
 		c.Visit(p)
@@ -143,8 +212,7 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		c.Visit(s)
 	}
 
-	c.mainBuilder.WriteString("  ret i32 0\n")
-	c.mainBuilder.WriteString("}\n")
+	c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
 
 	return nil
 }
@@ -163,20 +231,27 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 	for _, item := range ctx.AllDisplayItem() {
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
 			if field, ok := c.symbolTable.rootScope.fields[strings.ToUpper(id.GetText())]; ok {
+				printf := c.module.NamedFunction("printf")
 				if field.picture.isNumeric {
-					tempReg := fmt.Sprintf("%%t%d", c.tempRegCounter)
-					c.tempRegCounter++
-					c.mainBuilder.WriteString(fmt.Sprintf("  %s = load i32, i32* @%s, align 4\n", tempReg, field.name))
-					c.mainBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int, i32 0, i32 0), i32 %s)\n", tempReg))
+					formatStr := c.builder.CreateGlobalStringPtr("%d\n", ".str_int")
+					loadedVar := c.builder.CreateLoad(c.module.NamedGlobal(field.name).GlobalValueType(), c.module.NamedGlobal(field.name), "")
+					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{formatStr, loadedVar}, "")
 				} else {
-					formatStrName := fmt.Sprintf("@.str_format_var%d", c.strCounter)
-					c.globalBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [6 x i8] c\"%%.*s\\0A\\00\", align 1\n", formatStrName))
+					formatStr := c.builder.CreateGlobalStringPtr("%.*s\n", fmt.Sprintf(".str_format_var%d", c.strCounter))
 					c.strCounter++
 
-					tempPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
-					c.tempRegCounter++
-					c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* @%s, i32 0, i32 0\n", tempPtr, field.picture.length, field.picture.length, field.name))
-					c.mainBuilder.WriteString(fmt.Sprintf("  call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* %s, i32 0, i32 0), i32 %d, i8* %s)\n", formatStrName, field.picture.length, tempPtr))
+					destPtr := c.module.NamedGlobal(field.name)
+					indices := []llvm.Value{
+						llvm.ConstInt(c.context.Int32Type(), 0, false),
+						llvm.ConstInt(c.context.Int32Type(), 0, false),
+					}
+					gep := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), destPtr, indices, "")
+
+					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{
+						formatStr,
+						llvm.ConstInt(c.context.Int32Type(), uint64(field.picture.length), false),
+						gep,
+					}, "")
 				}
 			}
 		}
@@ -197,24 +272,33 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 				str := strings.Trim(fromLit.GetText(), "\"")
 				strLen := len(str)
 
-				strName := fmt.Sprintf("@.str%d", c.strCounter)
+				// Create a global constant for the string literal
+				strName := fmt.Sprintf(".str%d", c.strCounter)
 				c.strCounter++
-				c.globalBuilder.WriteString(fmt.Sprintf("%s = private unnamed_addr constant [%d x i8] c\"%s\\00\", align 1\n", strName, strLen+1, str))
+				globalStr := c.builder.CreateGlobalStringPtr(str, strName)
 
-				destPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
-				c.tempRegCounter++
-				srcPtr := fmt.Sprintf("%%t%d", c.tempRegCounter)
-				c.tempRegCounter++
+				destPtr := c.module.NamedGlobal(toField.name)
 
-				c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* @%s, i32 0, i32 0\n", destPtr, toField.picture.length, toField.picture.length, toField.name))
-				c.mainBuilder.WriteString(fmt.Sprintf("  %s = getelementptr inbounds [%d x i8], [%d x i8]* %s, i32 0, i32 0\n", srcPtr, strLen+1, strLen+1, strName))
+				indices := []llvm.Value{
+					llvm.ConstInt(c.context.Int32Type(), 0, false),
+					llvm.ConstInt(c.context.Int32Type(), 0, false),
+				}
+
+				destGEP := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), destPtr, indices, "")
+				srcGEP := c.builder.CreateInBoundsGEP(llvm.PointerType(c.context.Int8Type(), 0), globalStr, indices, "")
 
 				copySize := strLen
 				if toField.picture.length < copySize {
 					copySize = toField.picture.length
 				}
 
-				c.mainBuilder.WriteString(fmt.Sprintf("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %s, i8* align 1 %s, i64 %d, i1 false)\n", destPtr, srcPtr, copySize))
+				memcpy := c.module.NamedFunction("llvm.memcpy.p0i8.p0i8.i64")
+				c.builder.CreateCall(memcpy.GlobalValueType(), memcpy, []llvm.Value{
+					destGEP,
+					srcGEP,
+					llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
+					llvm.ConstInt(c.context.Int1Type(), 0, false),
+				}, "")
 			}
 		}
 	}

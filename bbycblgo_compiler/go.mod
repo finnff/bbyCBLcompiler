@@ -24,4 +24,5 @@ require (
 	golang.org/x/text v0.21.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	tinygo.org/x/go-llvm v0.0.0-20250422114502-b8f170971e74 // indirect
 )
