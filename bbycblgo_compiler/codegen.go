@@ -30,6 +30,7 @@ type CodeGenerator struct {
 	mainEntryBlock llvm.BasicBlock
 	printfFunc     llvm.Value
 	memcpyFunc     llvm.Value
+	stopped        bool
 }
 
 // NewCodeGenerator creates a new code generator.
@@ -42,6 +43,7 @@ func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename str
 		tempRegCounter:    0,
 		verbose:           verbose,
 		sourceFilename:    sourceFilename,
+		stopped:           false,
 	}
 }
 
@@ -262,12 +264,21 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 
 	for _, p := range ctx.AllParagraph() {
 		c.Visit(p)
+		if c.stopped {
+			return nil
+		}
 	}
 	for _, s := range ctx.AllSentence() {
 		c.Visit(s)
+		if c.stopped {
+			return nil
+		}
 	}
 
-	c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+	// If we haven't stopped, we need a return statement
+	if !c.stopped {
+		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+	}
 
 	return nil
 }
@@ -441,6 +452,8 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Stop Stmt")
 	}
+	c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+	c.stopped = true
 	return nil
 }
 
