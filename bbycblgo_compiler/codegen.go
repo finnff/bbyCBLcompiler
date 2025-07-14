@@ -308,12 +308,14 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
 			fieldName := id.GetText()
 			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
-				if field.picture.isNumeric {
+				if strings.ContainsAny(field.picture.raw, "9S") { // Heuristic for numeric
+					destPtr := c.module.NamedGlobal(field.name)
+					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
 					formatStr := c.builder.CreateGlobalStringPtr("%d", ".str_int")
 					if c.checkNil(formatStr, "format string for numeric display", item.GetStart().GetLine()) {
 						continue
 					}
-					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, value}, "")
+					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, loadedVar}, "")
 				} else {
 					formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_var%d", c.strCounter))
 					if c.checkNil(formatStr, "format string for string display", item.GetStart().GetLine()) {
@@ -391,6 +393,49 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 	destPtr := c.module.NamedGlobal(toField.name)
 	if c.checkNil(destPtr, "destination pointer in move", to.GetStart().GetLine()) {
 		return nil
+	}
+
+	if fromId, ok := from.(*parser.IdExprContext); ok {
+		switch strings.ToUpper(fromId.GetText()) {
+		case "HIGH-VALUES":
+			if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
+				valStr := ""
+				for _, char := range toField.picture.raw {
+					if char == '9' {
+						valStr += "9"
+					}
+				}
+				val, _ := strconv.ParseInt(valStr, 10, 64)
+				c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(val), true), destPtr)
+			} else { // Alphanumeric
+				char := llvm.ConstInt(c.context.Int8Type(), 0xff, false)
+				for i := 0; i < toField.picture.length; i++ {
+					indices := []llvm.Value{
+						llvm.ConstInt(c.context.Int32Type(), 0, false),
+						llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
+					}
+					ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
+					c.builder.CreateStore(char, ptr)
+				}
+			}
+			return nil
+		case "LOW-VALUES":
+			// Similar logic for LOW-VALUES
+			if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
+				c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), 0, true), destPtr)
+			} else { // Alphanumeric
+				char := llvm.ConstInt(c.context.Int8Type(), 0x00, false)
+				for i := 0; i < toField.picture.length; i++ {
+					indices := []llvm.Value{
+						llvm.ConstInt(c.context.Int32Type(), 0, false),
+						llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
+					}
+					ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
+					c.builder.CreateStore(char, ptr)
+				}
+			}
+			return nil
+		}
 	}
 
 	fromVal := c.Visit(from)
