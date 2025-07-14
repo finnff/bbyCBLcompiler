@@ -27,6 +27,9 @@ type CodeGenerator struct {
 	tempRegCounter int
 	verbose        bool
 	sourceFilename string
+	mainEntryBlock llvm.BasicBlock
+	printfFunc     llvm.Value
+	memcpyFunc     llvm.Value
 }
 
 // NewCodeGenerator creates a new code generator.
@@ -150,8 +153,12 @@ func (c *CodeGenerator) VisitProgram(ctx *parser.ProgramContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Program")
 	}
-	c.Visit(ctx.DataDivision())
-	c.Visit(ctx.ProcedureDivision())
+	if ctx.DataDivision() != nil {
+		c.Visit(ctx.DataDivision())
+	}
+	if ctx.ProcedureDivision() != nil {
+		c.Visit(ctx.ProcedureDivision())
+	}
 	return nil
 }
 
@@ -168,6 +175,10 @@ func (c *CodeGenerator) VisitParagraph(ctx *parser.ParagraphContext) interface{}
 func (c *CodeGenerator) VisitSentence(ctx *parser.SentenceContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Sentence")
+	}
+	// Ensure the builder's insert point is at the end of the main function's entry block
+	if !c.mainEntryBlock.IsNil() {
+		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 	}
 	return c.VisitChildren(ctx)
 }
@@ -205,10 +216,13 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 
 	// Declare printf
 	printfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
-	printfFunc := llvm.AddFunction(c.module, "printf", printfType)
-	if printfFunc.IsNil() {
+	c.printfFunc = llvm.AddFunction(c.module, "printf", printfType)
+	if c.printfFunc.IsNil() {
 		c.addError("Failed to declare printf function", ctx.GetStart().GetLine())
 		return nil
+	}
+	if c.verbose {
+		fmt.Printf("Declared printf function: %v (Type: %v)\n", c.printfFunc, c.printfFunc.GlobalValueType())
 	}
 
 	// Declare llvm.memcpy.p0.p0.i64
@@ -218,11 +232,11 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		c.context.Int64Type(),                     // len
 		c.context.Int1Type(),                      // isvolatile
 	}, false)
-	memcpyFunc := c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
-	if memcpyFunc.IsNil() {
+	c.memcpyFunc = c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
+	if c.memcpyFunc.IsNil() {
 		// If not found, add it. This handles cases where it might not be implicitly declared by LLVM.
-		memcpyFunc = llvm.AddFunction(c.module, "llvm.memcpy.p0.p0.i64", memcpyType)
-		if memcpyFunc.IsNil() {
+		c.memcpyFunc = llvm.AddFunction(c.module, "llvm.memcpy.p0.p0.i64", memcpyType)
+		if c.memcpyFunc.IsNil() {
 			c.addError("Failed to declare llvm.memcpy.p0.p0.i64 function", ctx.GetStart().GetLine())
 			return nil
 		}
@@ -231,8 +245,8 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	// Create main function
 	mainFuncType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{}, false)
 	mainFunc := llvm.AddFunction(c.module, "main", mainFuncType)
-	entryBlock := c.context.AddBasicBlock(mainFunc, "entry")
-	c.builder.SetInsertPointAtEnd(entryBlock)
+	c.mainEntryBlock = c.context.AddBasicBlock(mainFunc, "entry")
+	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 
 	for _, p := range ctx.AllParagraph() {
 		c.Visit(p)
@@ -257,12 +271,13 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 	if c.verbose {
 		fmt.Println("Visiting Display Stmt")
 	}
+
 	for _, item := range ctx.AllDisplayItem() {
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
+			// Handle identifier (field) case
 			fieldName := id.GetText()
 			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
-				printf := c.module.NamedFunction("printf")
-				if printf.IsNil() {
+				if c.printfFunc.IsNil() {
 					c.addError("printf function not found", id.GetStart().GetLine())
 					continue
 				}
@@ -276,25 +291,23 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 				}
 
 				if field.picture.isNumeric {
-					formatStr := c.builder.CreateGlobalStringPtr("%d\n", ".str_int")
-					// Load the integer value from the global variable
+					formatStr := c.builder.CreateGlobalStringPtr("%d", ".str_int")
 					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
-					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{formatStr, loadedVar}, "")
+					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, loadedVar}, "")
 					if c.verbose {
 						fmt.Printf("Generated display for numeric field: %s\n", field.name)
 					}
 				} else {
-					formatStr := c.builder.CreateGlobalStringPtr("%.*s\n", fmt.Sprintf(".str_format_var%d", c.strCounter))
+					formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_var%d", c.strCounter))
 					c.strCounter++
 
 					indices := []llvm.Value{
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 					}
-					// Get a pointer to the first element of the array (char*)
 					gep := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), field.picture.length), destPtr, indices, "")
 
-					c.builder.CreateCall(printf.GlobalValueType(), printf, []llvm.Value{
+					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
 						formatStr,
 						llvm.ConstInt(c.context.Int32Type(), uint64(field.picture.length), false),
 						gep,
@@ -304,8 +317,50 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 					}
 				}
 			}
+		} else if lit, ok := item.Expr().(*parser.LitExprContext); ok {
+			// Handle literal case - NOW AT THE CORRECT LEVEL!
+			if c.printfFunc.IsNil() {
+				c.addError("printf function not found", lit.GetStart().GetLine())
+				continue
+			}
+
+			if c.verbose {
+				fmt.Printf("Printf function in DisplayStmt (literal): %v (Type: %v)\n", c.printfFunc, c.printfFunc.GlobalValueType())
+			}
+
+			str := strings.Trim(lit.GetText(), "\"")
+			strLen := len(str)
+
+			// For DISPLAY with multiple items, just print the string without newline
+			// The newline should only be added after all items are printed
+			formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_lit%d", c.strCounter))
+			c.strCounter++
+			globalStr := c.builder.CreateGlobalStringPtr(str, fmt.Sprintf(".str_lit%d", c.strCounter))
+			c.strCounter++
+
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+			}
+			gep := c.builder.CreateInBoundsGEP(globalStr.GlobalValueType(), globalStr, indices, "")
+
+			c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
+				formatStr,
+				llvm.ConstInt(c.context.Int32Type(), uint64(strLen), false),
+				gep,
+			}, "")
+			if c.verbose {
+				fmt.Printf("Generated display for string literal: %s\n", str)
+			}
 		}
 	}
+
+	// Add a newline after all display items (unless WITH NO ADVANCING is specified)
+	// For now, always add newline - you can check for WITH NO ADVANCING later
+	newlineStr := c.builder.CreateGlobalStringPtr("\n", fmt.Sprintf(".str_newline%d", c.strCounter))
+	c.strCounter++
+	c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{newlineStr}, "")
+
 	return nil
 }
 
@@ -390,12 +445,11 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 				copySize = toField.picture.length
 			}
 
-			memcpy := c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
-			if memcpy.IsNil() {
+			if c.memcpyFunc.IsNil() {
 				c.addError("llvm.memcpy.p0.p0.i64 function not found", from.GetStart().GetLine())
 				return nil
 			}
-			c.builder.CreateCall(memcpy.GlobalValueType(), memcpy, []llvm.Value{
+			c.builder.CreateCall(c.memcpyFunc.GlobalValueType(), c.memcpyFunc, []llvm.Value{
 				destGEP,
 				srcGEP,
 				llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),

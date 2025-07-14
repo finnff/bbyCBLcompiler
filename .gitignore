@@ -3,3 +3,6 @@ tests/recombined_formatted
 tests/failed
 tests
 tests/
+bbycblgo_compiler/handmade/test*.o
+bbycblgo_compiler/handmade/test02
+bbycblgo_compiler/handmade/!*.*
