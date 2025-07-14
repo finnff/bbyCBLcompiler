@@ -532,6 +532,60 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 	return nil
 }
 
+func (c *CodeGenerator) VisitAddToForm(ctx *parser.AddToFormContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting AddToForm Stmt")
+	}
+
+	// Sum up all the source values
+	sources := ctx.ExprList(0).AllExpr()
+	sum := c.Visit(sources[0]).(llvm.Value)
+	for i := 1; i < len(sources); i++ {
+		nextVal := c.Visit(sources[i]).(llvm.Value)
+		sum = c.builder.CreateAdd(sum, nextVal, "addtmp")
+	}
+
+	// Handle ADD ... TO ...
+	toExprs := ctx.ExprList(1).AllExpr()
+	for _, toExpr := range toExprs {
+		field, _ := c.getFieldSymbol(toExpr.GetText(), toExpr.GetStart().GetLine())
+		if field != nil {
+			destPtr := c.module.NamedGlobal(field.name)
+			currentVal := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
+			newVal := c.builder.CreateAdd(sum, currentVal, "addtmp")
+			c.builder.CreateStore(newVal, destPtr)
+		}
+	}
+
+	return nil
+}
+
+func (c *CodeGenerator) VisitAddGivingForm(ctx *parser.AddGivingFormContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting AddGivingForm Stmt")
+	}
+
+	// Sum up all the source values
+	sources := ctx.ExprList().AllExpr()
+	sum := c.Visit(sources[0]).(llvm.Value)
+	for i := 1; i < len(sources); i++ {
+		nextVal := c.Visit(sources[i]).(llvm.Value)
+		sum = c.builder.CreateAdd(sum, nextVal, "addtmp")
+	}
+
+	// Handle ADD ... GIVING ...
+	givingExprs := ctx.GivingClause().ExprList().AllExpr()
+	for _, givingExpr := range givingExprs {
+		field, _ := c.getFieldSymbol(givingExpr.GetText(), givingExpr.GetStart().GetLine())
+		if field != nil {
+			destPtr := c.module.NamedGlobal(field.name)
+			c.builder.CreateStore(sum, destPtr)
+		}
+	}
+
+	return nil
+}
+
 func (c *CodeGenerator) VisitSubtractStmt(ctx *parser.SubtractStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Subtract Stmt")

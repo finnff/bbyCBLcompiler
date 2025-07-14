@@ -12,8 +12,8 @@ import (
 
 // Scope represents a lexical scope, holding symbols and a pointer to its parent scope.
 type Scope struct {
-	fields map[string][]*FieldSymbol
-	parent *Scope
+	fields   map[string][]*FieldSymbol
+	parent   *Scope
 	children []*Scope
 }
 
@@ -167,12 +167,12 @@ func (v *SymbolTableBuilder) VisitDataEntry(ctx *parser.DataEntryContext) interf
 		v.checkAreaB(ctx.LevelNumber().GetStart(), fmt.Sprintf("Level number %s", levelStr))
 	}
 
-	if !((level >= 0 && level <= 99)) { // Allow level 00-99
+	if !(level >= 0 && level <= 99) { // Allow level 00-99
 		v.addError(fmt.Sprintf("Invalid level number: must be 00-99, got %d", level), ctx.GetStart().GetLine())
 		return nil
 	}
 
-	uname := strings.ToUpper(name) // Convert to uppercase once
+	uname := strings.ToUpper(name)                   // Convert to uppercase once
 	field := &FieldSymbol{name: uname, level: level} // Use uname for the field name
 
 	// Manage parent stack and add to symbol table
@@ -295,8 +295,7 @@ func (v *SymbolTableBuilder) analyzePicture(pic string, line int) *PictureType {
 	if vCount > 1 {
 		v.addError("PICTURE clause can only contain one 'V' for an implicit decimal point", line)
 	}
-	
-	
+
 	pt.isNumeric = hasNumeric && !hasAlpha && !hasAlphaNum
 	pt.isAlpha = hasAlpha
 	pt.isAlphaNum = hasAlphaNum
@@ -513,7 +512,7 @@ func (v *SemanticChecker) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{}
 	return v.VisitChildren(ctx)
 }
 
-func (v *SemanticChecker) VisitAddStmt(ctx *parser.AddStmtContext) interface{} {
+func (v *SemanticChecker) VisitAddToForm(ctx *parser.AddToFormContext) interface{} {
 	sources := ctx.ExprList(0).AllExpr()
 	dests := ctx.ExprList(1).AllExpr()
 	operands := append([]parser.IExprContext{}, sources...)
@@ -551,6 +550,29 @@ func (v *SemanticChecker) VisitAddStmt(ctx *parser.AddStmtContext) interface{} {
 			if _, ok := last.(*parser.LitExprContext); ok {
 				v.addError("ADD statement with a literal as the final operand requires a GIVING clause", ctx.GetStart().GetLine())
 			}
+		}
+	}
+	return v.VisitChildren(ctx)
+}
+
+func (v *SemanticChecker) VisitAddGivingForm(ctx *parser.AddGivingFormContext) interface{} {
+	sources := ctx.ExprList().AllExpr()
+	for _, operand := range sources {
+		if !v.isNumeric(operand) {
+			v.addError(fmt.Sprintf("Operand '%s' in ADD statement must be numeric", operand.GetText()), operand.GetStart().GetLine())
+		}
+		field := v.getFieldFromExpr(operand, operand.GetStart().GetLine())
+		if field != nil {
+			if !field.initialized {
+				v.addError(fmt.Sprintf("Variable '%s' may not have been initialized", operand.GetText()), operand.GetStart().GetLine())
+			}
+		}
+	}
+	giving := ctx.GivingClause()
+	for _, res := range giving.ExprList().AllExpr() {
+		field := v.getFieldFromExpr(res, res.GetStart().GetLine())
+		if field != nil {
+			field.initialized = true
 		}
 	}
 	return v.VisitChildren(ctx)

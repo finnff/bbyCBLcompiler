@@ -157,12 +157,18 @@ func (v *ASTPrinter) VisitSubtractStmt(ctx *parser.SubtractStmtContext) interfac
 	return v.VisitChildren(ctx)
 }
 
-func (v *ASTPrinter) VisitAddStmt(ctx *parser.AddStmtContext) interface{} {
-	fmt.Printf("%sAddStatement\n", v.indent())
+func (v *ASTPrinter) VisitAddToForm(ctx *parser.AddToFormContext) interface{} {
+	fmt.Printf("%sAddStatement (TO)\n", v.indent())
+	return v.VisitChildren(ctx)
+}
+
+func (v *ASTPrinter) VisitAddGivingForm(ctx *parser.AddGivingFormContext) interface{} {
+	fmt.Printf("%sAddStatement (GIVING)\n", v.indent())
 	return v.VisitChildren(ctx)
 }
 
 func (v *ASTPrinter) VisitMultiplyStmt(ctx *parser.MultiplyStmtContext) interface{} {
+
 	fmt.Printf("%sMultiplyStatement\n", v.indent())
 	return v.VisitChildren(ctx)
 }
@@ -199,6 +205,11 @@ func (v *ASTPrinter) VisitUntilClause(ctx *parser.UntilClauseContext) interface{
 
 func (v *ASTPrinter) VisitLoopControl(ctx *parser.LoopControlContext) interface{} {
 	fmt.Printf("%sLoopControl\n", v.indent())
+	return v.VisitChildren(ctx)
+}
+
+func (v *ASTPrinter) VisitGivingClause(ctx *parser.GivingClauseContext) interface{} {
+	fmt.Printf("%sGivingClause\n", v.indent())
 	return v.VisitChildren(ctx)
 }
 

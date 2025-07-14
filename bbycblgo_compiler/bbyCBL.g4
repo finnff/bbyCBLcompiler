@@ -133,7 +133,10 @@ evalSubject
 acceptStmt
     : ACCEPT exprList
     ;
-addStmt          : ADD exprList TO exprList givingClause*                 ;
+addStmt 
+    : ADD exprList TO exprList givingClause*     # addToForm
+    | ADD exprList givingClause                  # addGivingForm  
+    ;
 alterStmt        : ALTER identifier TO PROCEED TO identifier             ;
 callStmt         : CALL expr (USING usingClause)?                           ;
 copySource
