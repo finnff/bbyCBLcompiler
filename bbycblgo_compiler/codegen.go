@@ -121,6 +121,18 @@ func (c *CodeGenerator) addError(msg string, line int) {
 	c.errors = append(c.errors, SemanticError{msg, line})
 }
 
+func (c *CodeGenerator) checkNil(val llvm.Value, msg string, line int) bool {
+	if val.IsNil() {
+		c.addError(fmt.Sprintf("%s is nil", msg), line)
+		return true
+	}
+	if val.Type().IsNil() {
+		c.addError(fmt.Sprintf("type of %s is nil", msg), line)
+		return true
+	}
+	return false
+}
+
 func (c *CodeGenerator) getFieldSymbol(name string, line int) *FieldSymbol {
 	uname := strings.ToUpper(name)
 	if fields, ok := c.symbolTable.rootScope.fields[uname]; ok && len(fields) > 0 {
@@ -217,12 +229,11 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	// Declare printf
 	printfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
 	c.printfFunc = llvm.AddFunction(c.module, "printf", printfType)
-	if c.printfFunc.IsNil() {
-		c.addError("Failed to declare printf function", ctx.GetStart().GetLine())
+	if c.checkNil(c.printfFunc, "printf function", ctx.GetStart().GetLine()) {
 		return nil
 	}
 	if c.verbose {
-		fmt.Printf("Declared printf function: %v (Type: %v)\n", c.printfFunc, c.printfFunc.GlobalValueType())
+		fmt.Printf("Declared printf function: %v\n", c.printfFunc)
 	}
 
 	// Declare llvm.memcpy.p0.p0.i64
@@ -234,10 +245,8 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	}, false)
 	c.memcpyFunc = c.module.NamedFunction("llvm.memcpy.p0.p0.i64")
 	if c.memcpyFunc.IsNil() {
-		// If not found, add it. This handles cases where it might not be implicitly declared by LLVM.
 		c.memcpyFunc = llvm.AddFunction(c.module, "llvm.memcpy.p0.p0.i64", memcpyType)
-		if c.memcpyFunc.IsNil() {
-			c.addError("Failed to declare llvm.memcpy.p0.p0.i64 function", ctx.GetStart().GetLine())
+		if c.checkNil(c.memcpyFunc, "memcpy function", ctx.GetStart().GetLine()) {
 			return nil
 		}
 	}
@@ -245,8 +254,11 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	// Create main function
 	mainFuncType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{}, false)
 	mainFunc := llvm.AddFunction(c.module, "main", mainFuncType)
+	if c.checkNil(mainFunc, "main function", ctx.GetStart().GetLine()) {
+		return nil
+	}
 	c.mainEntryBlock = c.context.AddBasicBlock(mainFunc, "entry")
-	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
+	c.builder.SetInsertPointAtEnd(c.mainEntryBlock);
 
 	for _, p := range ctx.AllParagraph() {
 		c.Visit(p)
@@ -273,91 +285,80 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 	}
 
 	for _, item := range ctx.AllDisplayItem() {
+		val := c.Visit(item.Expr())
+		if val == nil {
+			continue
+		}
+		value, ok := val.(llvm.Value)
+		if !ok || c.checkNil(value, "display item", item.GetStart().GetLine()) {
+			continue
+		}
+
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
-			// Handle identifier (field) case
 			fieldName := id.GetText()
 			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
-				if c.printfFunc.IsNil() {
-					c.addError("printf function not found", id.GetStart().GetLine())
-					continue
-				}
-				destPtr := c.module.NamedGlobal(field.name)
-
-				if destPtr.IsNil() {
-					if c.verbose {
-						fmt.Printf("Display error: Global variable %s not found\n", field.name)
-					}
-					continue
-				}
-
 				if field.picture.isNumeric {
 					formatStr := c.builder.CreateGlobalStringPtr("%d", ".str_int")
-					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
-					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, loadedVar}, "")
-					if c.verbose {
-						fmt.Printf("Generated display for numeric field: %s\n", field.name)
+					if c.checkNil(formatStr, "format string for numeric display", item.GetStart().GetLine()) {
+						continue
 					}
+					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, value}, "")
 				} else {
 					formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_var%d", c.strCounter))
+					if c.checkNil(formatStr, "format string for string display", item.GetStart().GetLine()) {
+						continue
+					}
 					c.strCounter++
-
+					destPtr := c.module.NamedGlobal(field.name)
 					indices := []llvm.Value{
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 						llvm.ConstInt(c.context.Int32Type(), 0, false),
 					}
 					gep := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), field.picture.length), destPtr, indices, "")
-
+					if c.checkNil(gep, "GEP for string display", item.GetStart().GetLine()) {
+						continue
+					}
 					c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
 						formatStr,
 						llvm.ConstInt(c.context.Int32Type(), uint64(field.picture.length), false),
 						gep,
 					}, "")
-					if c.verbose {
-						fmt.Printf("Generated display for string field: %s\n", field.name)
-					}
 				}
 			}
 		} else if lit, ok := item.Expr().(*parser.LitExprContext); ok {
-			// Handle literal case - NOW AT THE CORRECT LEVEL!
-			if c.printfFunc.IsNil() {
-				c.addError("printf function not found", lit.GetStart().GetLine())
-				continue
-			}
-
-			if c.verbose {
-				fmt.Printf("Printf function in DisplayStmt (literal): %v (Type: %v)\n", c.printfFunc, c.printfFunc.GlobalValueType())
-			}
-
-			str := strings.Trim(lit.GetText(), "\"")
-			strLen := len(str)
-
-			// For DISPLAY with multiple items, just print the string without newline
-			// The newline should only be added after all items are printed
-			formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_lit%d", c.strCounter))
-			c.strCounter++
-			globalStr := c.builder.CreateGlobalStringPtr(str, fmt.Sprintf(".str_lit%d", c.strCounter))
-			c.strCounter++
-
-			indices := []llvm.Value{
-				llvm.ConstInt(c.context.Int32Type(), 0, false),
-				llvm.ConstInt(c.context.Int32Type(), 0, false),
-			}
-			gep := c.builder.CreateInBoundsGEP(globalStr.GlobalValueType(), globalStr, indices, "")
-
-			c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
-				formatStr,
-				llvm.ConstInt(c.context.Int32Type(), uint64(strLen), false),
-				gep,
-			}, "")
-			if c.verbose {
-				fmt.Printf("Generated display for string literal: %s\n", str)
+			litStr := lit.GetText()
+			if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
+				formatStr := c.builder.CreateGlobalStringPtr("%d", ".str_int")
+				if c.checkNil(formatStr, "format string for numeric literal display", item.GetStart().GetLine()) {
+					continue
+				}
+				c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{formatStr, value}, "")
+			} else {
+				str := strings.Trim(lit.GetText(), "\"")
+				strLen := len(str)
+				formatStr := c.builder.CreateGlobalStringPtr("%.*s", fmt.Sprintf(".str_format_lit%d", c.strCounter))
+				if c.checkNil(formatStr, "format string for string literal display", item.GetStart().GetLine()) {
+					continue
+				}
+				c.strCounter++
+				globalStr := c.builder.CreateGlobalStringPtr(str, fmt.Sprintf(".str_lit%d", c.strCounter))
+				if c.checkNil(globalStr, "global string for literal display", item.GetStart().GetLine()) {
+					continue
+				}
+				c.strCounter++
+				c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
+					formatStr,
+					llvm.ConstInt(c.context.Int32Type(), uint64(strLen), false),
+					globalStr,
+				}, "")
 			}
 		}
 	}
 
-	// Add a newline after all display items (unless WITH NO ADVANCING is specified)
-	// For now, always add newline - you can check for WITH NO ADVANCING later
 	newlineStr := c.builder.CreateGlobalStringPtr("\n", fmt.Sprintf(".str_newline%d", c.strCounter))
+	if c.checkNil(newlineStr, "newline string", ctx.GetStart().GetLine()) {
+		return nil
+	}
 	c.strCounter++
 	c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{newlineStr}, "")
 
@@ -372,100 +373,232 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 	to := ctx.ExprList(1).AllExpr()[0]
 	from := ctx.ExprList(0).AllExpr()[0]
 
-	if c.verbose {
-		fmt.Printf("Move from: %T (%s) to: %T (%s)\n", from, from.GetText(), to, to.GetText())
-	}
-
 	toField := c.getFieldSymbol(to.GetText(), to.GetStart().GetLine())
 	if toField == nil {
-		if c.verbose {
-			fmt.Printf("Move error: Destination field %s not found in symbol table\n", to.GetText())
-		}
 		return nil
 	}
-	if c.verbose {
-		fmt.Printf("Found destination field %s in symbol table\n", toField.name)
-	}
-
 	destPtr := c.module.NamedGlobal(toField.name)
-	if c.verbose {
-		fmt.Printf("Retrieved global variable %s: %v (Type: %v, IsGlobal: %t)\n", toField.name, destPtr, destPtr.Type(), destPtr.IsAGlobalVariable())
-	}
-	if destPtr.IsNil() {
-		if c.verbose {
-			fmt.Printf("Move error: Global variable %s not found or is nil after retrieval\n", toField.name)
-		}
+	if c.checkNil(destPtr, "destination pointer in move", to.GetStart().GetLine()) {
 		return nil
 	}
 
-	if fromLit, ok := from.(*parser.LitExprContext); ok {
-		if c.verbose {
-			fmt.Printf("Source is literal: %s\n", fromLit.GetText())
-		}
-		if toField.picture.isNumeric {
-			if c.verbose {
-				fmt.Printf("Generating move for numeric field: %s\n", toField.name)
-			}
-			numStr := fromLit.GetText()
-			val, err := strconv.ParseInt(numStr, 10, 32)
-			if err != nil {
-				c.addError(fmt.Sprintf("Invalid numeric literal: %s", numStr), from.GetStart().GetLine())
-				return nil
-			}
-			c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(val), true), destPtr)
-			if c.verbose {
-				fmt.Println("Generated store instruction for numeric move")
-			}
-		} else {
-			if c.verbose {
-				fmt.Printf("Generating move for string field: %s\n", toField.name)
-			}
-			str := strings.Trim(fromLit.GetText(), "\"")
-			strLen := len(str)
-
-			strName := fmt.Sprintf(".str%d", c.strCounter)
-			c.strCounter++
-			globalStr := c.builder.CreateGlobalStringPtr(str, strName)
-
-			indices := []llvm.Value{
-				llvm.ConstInt(c.context.Int32Type(), 0, false),
-				llvm.ConstInt(c.context.Int32Type(), 0, false),
-			}
-
-			// Reconstruct the destination pointer type as a pointer to an array of i8
-			destType := llvm.PointerType(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), 0)
-			destGEP := c.builder.CreateInBoundsGEP(destType, destPtr, indices, "")
-
-			// Reconstruct the source pointer type as a pointer to an array of i8
-			srcType := llvm.PointerType(llvm.ArrayType(c.context.Int8Type(), int(uint64(strLen+1))), 0) // +1 for null terminator
-			srcGEP := c.builder.CreateInBoundsGEP(srcType, globalStr, indices, "")
-
-			copySize := strLen
-			if toField.picture.length < copySize {
-				copySize = toField.picture.length
-			}
-
-			if c.memcpyFunc.IsNil() {
-				c.addError("llvm.memcpy.p0.p0.i64 function not found", from.GetStart().GetLine())
-				return nil
-			}
-			c.builder.CreateCall(c.memcpyFunc.GlobalValueType(), c.memcpyFunc, []llvm.Value{
-				destGEP,
-				srcGEP,
-				llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
-				llvm.ConstInt(c.context.Int1Type(), 0, false),
-			}, "")
-			if c.verbose {
-				fmt.Println("Generated memcpy call for string move")
-			}
-		}
+	fromVal := c.Visit(from)
+	if fromVal == nil {
+		return nil
 	}
+	value, ok := fromVal.(llvm.Value)
+	if !ok || c.checkNil(value, "source value in move", from.GetStart().GetLine()) {
+		return nil
+	}
+
+	if toField.picture.isNumeric {
+		c.builder.CreateStore(value, destPtr)
+	} else {
+		// String move
+		str := strings.Trim(from.GetText(), "\"")
+		strLen := len(str)
+
+		strName := fmt.Sprintf(".str%d", c.strCounter)
+		c.strCounter++
+		globalStr := c.builder.CreateGlobalStringPtr(str, strName)
+		if c.checkNil(globalStr, "global string for move", from.GetStart().GetLine()) {
+			return nil
+		}
+
+		indices := []llvm.Value{
+			llvm.ConstInt(c.context.Int32Type(), 0, false),
+			llvm.ConstInt(c.context.Int32Type(), 0, false),
+		}
+
+		destGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
+		if c.checkNil(destGEP, "dest GEP for move", from.GetStart().GetLine()) {
+			return nil
+		}
+		srcGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), int(uint64(strLen+1))), globalStr, indices, "")
+		if c.checkNil(srcGEP, "src GEP for move", from.GetStart().GetLine()) {
+			return nil
+		}
+
+		copySize := strLen
+		if toField.picture.length < copySize {
+			copySize = toField.picture.length
+		}
+
+		c.builder.CreateCall(c.memcpyFunc.GlobalValueType(), c.memcpyFunc, []llvm.Value{
+			destGEP,
+			srcGEP,
+			llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
+			llvm.ConstInt(c.context.Int1Type(), 0, false),
+		}, "")
+	}
+
 	return nil
 }
+
+
 
 func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Stop Stmt")
 	}
 	return nil
+}
+
+func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting If Stmt")
+	}
+
+	conditionVal := c.Visit(ctx.Condition())
+	if conditionVal == nil {
+		c.addError("condition expression is nil", ctx.GetStart().GetLine())
+		return nil
+	}
+	condition, ok := conditionVal.(llvm.Value)
+	if !ok || condition.IsNil() {
+		c.addError("condition is not a valid llvm value", ctx.GetStart().GetLine())
+		return nil
+	}
+
+	startFunc := c.builder.GetInsertBlock().Parent()
+	thenBlock := c.context.AddBasicBlock(startFunc, "then")
+	mergeBlock := c.context.AddBasicBlock(startFunc, "ifcont")
+	elseBlock := mergeBlock
+
+	if ctx.ELSE() != nil {
+		elseBlock = c.context.AddBasicBlock(startFunc, "else")
+	}
+
+	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
+
+	c.builder.SetInsertPointAtEnd(thenBlock)
+	for _, stmt := range ctx.AllStatement() {
+		c.Visit(stmt)
+	}
+	c.builder.CreateBr(mergeBlock)
+
+	if ctx.ELSE() != nil {
+		c.builder.SetInsertPointAtEnd(elseBlock)
+	}
+
+	c.builder.SetInsertPointAtEnd(mergeBlock)
+
+	return nil
+}
+
+func (c *CodeGenerator) VisitCondition(ctx *parser.ConditionContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Condition")
+	}
+	// For now, we only handle simple conditions.
+	// In the future, we’ll handle AND/OR/XOR here.
+	if len(ctx.AllSimpleCond()) > 0 {
+		return c.Visit(ctx.SimpleCond(0))
+	}
+	c.addError("complex conditions not yet supported", ctx.GetStart().GetLine())
+	return nil
+}
+
+func (c *CodeGenerator) VisitSimpleCond(ctx *parser.SimpleCondContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Simple Cond")
+	}
+
+	leftVal := c.Visit(ctx.Expr(0))
+	if leftVal == nil {
+		c.addError("left expression in condition is nil", ctx.GetStart().GetLine())
+		return llvm.Value{}
+	}
+	left, ok := leftVal.(llvm.Value)
+	if !ok || c.checkNil(left, "left expression", ctx.GetStart().GetLine()) {
+		c.addError("left expression in condition is not a valid llvm value", ctx.GetStart().GetLine())
+		return llvm.Value{}
+	}
+
+	rightVal := c.Visit(ctx.Expr(1))
+	if rightVal == nil {
+		c.addError("right expression in condition is nil", ctx.GetStart().GetLine())
+		return llvm.Value{}
+	}
+	right, ok := rightVal.(llvm.Value)
+	if !ok || c.checkNil(right, "right expression", ctx.GetStart().GetLine()) {
+		c.addError("right expression in condition is not a valid llvm value", ctx.GetStart().GetLine())
+		return llvm.Value{}
+	}
+
+	if c.verbose {
+		fmt.Printf("  Left: %v (Type: %v)\n", left, left.Type())
+		fmt.Printf("  Right: %v (Type: %v)\n", right, right.Type())
+	}
+
+	var pred llvm.IntPredicate
+	switch {
+	case ctx.Comparator().EQ() != nil:
+		pred = llvm.IntEQ
+	case ctx.Comparator().GT() != nil:
+		pred = llvm.IntSGT
+	case ctx.Comparator().LT() != nil:
+		pred = llvm.IntSLT
+	case ctx.Comparator().GE() != nil:
+		pred = llvm.IntSGE
+	case ctx.Comparator().LE() != nil:
+		pred = llvm.IntSLE
+	default:
+		c.addError(fmt.Sprintf("Unsupported comparator: %s", ctx.Comparator().GetText()), ctx.GetStart().GetLine())
+		return llvm.Value{}
+	}
+
+	return c.builder.CreateICmp(pred, left, right, "cmptmp")
+}
+
+func (c *CodeGenerator) VisitIdExpr(ctx *parser.IdExprContext) interface{} {
+	if c.verbose {
+		fmt.Printf("Visiting IdExpr: %s\n", ctx.GetText())
+	}
+	fieldName := ctx.GetText()
+	if field := c.getFieldSymbol(fieldName, ctx.GetStart().GetLine()); field != nil {
+		destPtr := c.module.NamedGlobal(field.name)
+		if destPtr.IsNil() {
+			c.addError(fmt.Sprintf("Global variable %s not found", field.name), ctx.GetStart().GetLine())
+			return llvm.Value{}
+		}
+		if field.picture.isNumeric {
+			val := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
+			if c.verbose {
+				fmt.Printf("  Loaded IdExpr %s as %v\n", ctx.GetText(), val)
+			}
+			return val
+		}
+		if c.verbose {
+			fmt.Printf("  Returning pointer for IdExpr %s\n", ctx.GetText())
+		}
+		return destPtr
+	}
+	return llvm.Value{}
+}
+
+func (c *CodeGenerator) VisitLitExpr(ctx *parser.LitExprContext) interface{} {
+	litStr := ctx.GetText()
+	if c.verbose {
+		fmt.Printf("Visiting LitExpr: %s\n", litStr)
+	}
+	if val, err := strconv.ParseInt(litStr, 10, 32); err == nil {
+		ret := llvm.ConstInt(c.context.Int32Type(), uint64(val), true)
+		if c.verbose {
+			fmt.Printf("  Parsed LitExpr %s as %v\n", litStr, ret)
+		}
+		return ret
+	}
+	if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
+		str := strings.Trim(litStr, "\"")
+		strName := fmt.Sprintf(".str_lit%d", c.strCounter)
+		c.strCounter++
+		ret := c.builder.CreateGlobalStringPtr(str, strName)
+		if c.verbose {
+			fmt.Printf("  Created global string for LitExpr %s\n", litStr)
+		}
+		return ret
+	}
+	c.addError(fmt.Sprintf("Unsupported literal type: %s", litStr), ctx.GetStart().GetLine())
+	return llvm.Value{}
 }
