@@ -1,0 +1,10 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ARRAYLOOP.
+       DATA DIVISION.
+         01 Arr PICTURE IS 99 OCCURS 3 TIMES.
+       PROCEDURE DIVISION.
+           MOVE 10 TO Arr(1) Arr(2) Arr(3).
+           LOOP VARYING I FROM 1 TO 3
+               SUBTRACT 1 FROM Arr(I)
+               DISPLAY Arr(I)
+           END.

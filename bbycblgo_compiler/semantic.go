@@ -14,6 +14,7 @@ import (
 type Scope struct {
 	fields map[string][]*FieldSymbol
 	parent *Scope
+	children []*Scope
 }
 
 // SymbolTable holds all symbols discovered in the program.
@@ -105,6 +106,7 @@ type SymbolTableBuilder struct {
 	*BaseAnalyzer // Embed BaseAnalyzer instead of BasebbyCBLVisitor directly
 	symbolTable   *SymbolTable
 	parentStack   []*FieldSymbol
+	currentScope  *Scope
 }
 
 func NewSymbolTableBuilder() *SymbolTableBuilder {

@@ -118,7 +118,7 @@ simpleId
     | DISPLAY | OF | BY | COPY | VARYING | STOP | LIKE
     | OFF | ON | ERROR | PROCEED | REFERENCE | VALUE | CONTENT
     | OTHER | NOT | OR | AND | XOR | TIMES | USING | WHILE | UNTIL
-    | FROM | GIVING | INTO | THROUGH | GO | IF | LOOP | MULTIPLY
+    | GIVING | INTO | THROUGH | GO | IF | LOOP | MULTIPLY
     | DIVIDE | SUBTRACT | CALL | ACCEPT | PERFORM | SIGNAL | ALTER
     | EVALUATE | WHEN | RUN | REMAINDER | SIZE | DELIMITED | WITH
     | NO | ADVANCING | ALSO | NEXT | SENTENCE
@@ -171,6 +171,7 @@ loopStmt         : LOOP loopContent* END identifier?
 loopContent
     : loopControl
     | statement
+    | sentence
     ;
 
 loopControl

@@ -31,6 +31,7 @@ type CodeGenerator struct {
 	printfFunc     llvm.Value
 	memcpyFunc     llvm.Value
 	stopped        bool
+	localVars      map[string]llvm.Value
 }
 
 // NewCodeGenerator creates a new code generator.
@@ -44,6 +45,7 @@ func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename str
 		verbose:           verbose,
 		sourceFilename:    sourceFilename,
 		stopped:           false,
+		localVars:         make(map[string]llvm.Value),
 	}
 }
 
@@ -135,15 +137,23 @@ func (c *CodeGenerator) checkNil(val llvm.Value, msg string, line int) bool {
 	return false
 }
 
-func (c *CodeGenerator) getFieldSymbol(name string, line int) *FieldSymbol {
+func (c *CodeGenerator) getFieldSymbol(name string, line int) (*FieldSymbol, string) {
+	// Check for subscript
+	subscript := ""
+	if strings.Contains(name, "(") {
+		parts := strings.Split(name, "(")
+		name = parts[0]
+		subscript = strings.TrimRight(parts[1], ")")
+	}
+
 	uname := strings.ToUpper(name)
 	if fields, ok := c.symbolTable.rootScope.fields[uname]; ok && len(fields) > 0 {
 		// For now, just return the first field found. 
 		// A more robust solution would involve resolving qualified names.
-		return fields[0]
+		return fields[0], subscript
 	}
 	c.addError(fmt.Sprintf("Field '%s' not found in symbol table", name), line)
-	return nil
+	return nil, ""
 }
 
 func (c *CodeGenerator) Visit(tree antlr.ParseTree) interface{} {
@@ -190,10 +200,6 @@ func (c *CodeGenerator) VisitSentence(ctx *parser.SentenceContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Sentence")
 	}
-	// Ensure the builder's insert point is at the end of the main function's entry block
-	if !c.mainEntryBlock.IsNil() {
-		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
-	}
 	return c.VisitChildren(ctx)
 }
 
@@ -203,17 +209,31 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 	}
 	for _, dataEntry := range ctx.AllDataEntry() {
 		fieldName := dataEntry.Identifier().GetText()
-		if field := c.getFieldSymbol(fieldName, dataEntry.GetStart().GetLine()); field != nil {
+		field, _ := c.getFieldSymbol(fieldName, dataEntry.GetStart().GetLine())
+		if field != nil {
 			var global llvm.Value
-			if field.picture.isNumeric {
-				global = llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
-				global.SetInitializer(llvm.ConstInt(c.context.Int32Type(), 0, false))
-				global.SetAlignment(4)
+			if field.occurs > 0 {
+				if field.picture.isNumeric {
+					global = llvm.AddGlobal(c.module, llvm.ArrayType(c.context.Int32Type(), field.occurs), field.name)
+					global.SetInitializer(llvm.ConstNull(llvm.ArrayType(c.context.Int32Type(), field.occurs)))
+					global.SetAlignment(4)
+				} else {
+					globalType := llvm.ArrayType(llvm.ArrayType(c.context.Int8Type(), field.picture.length), field.occurs)
+					global = llvm.AddGlobal(c.module, globalType, field.name)
+					global.SetInitializer(llvm.ConstNull(globalType))
+					global.SetAlignment(1)
+				}
 			} else {
-				globalType := llvm.ArrayType(c.context.Int8Type(), field.picture.length)
-				global = llvm.AddGlobal(c.module, globalType, field.name)
-				global.SetInitializer(llvm.ConstNull(globalType))
-				global.SetAlignment(1)
+				if field.picture.isNumeric {
+					global = llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
+					global.SetInitializer(llvm.ConstInt(c.context.Int32Type(), 0, false))
+					global.SetAlignment(4)
+				} else {
+					globalType := llvm.ArrayType(c.context.Int8Type(), field.picture.length)
+					global = llvm.AddGlobal(c.module, globalType, field.name)
+					global.SetInitializer(llvm.ConstNull(globalType))
+					global.SetAlignment(1)
+				}
 			}
 			if c.verbose {
 				fmt.Printf("Created global variable: %s (Value: %v)\n", global.Name(), global)
@@ -307,7 +327,8 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 
 		if id, ok := item.Expr().(*parser.IdExprContext); ok {
 			fieldName := id.GetText()
-			if field := c.getFieldSymbol(fieldName, id.GetStart().GetLine()); field != nil {
+			field, _ := c.getFieldSymbol(fieldName, id.GetStart().GetLine())
+			if field != nil {
 				if strings.ContainsAny(field.picture.raw, "9S") { // Heuristic for numeric
 					destPtr := c.module.NamedGlobal(field.name)
 					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
@@ -368,12 +389,15 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		}
 	}
 
-	newlineStr := c.builder.CreateGlobalStringPtr("\n", fmt.Sprintf(".str_newline%d", c.strCounter))
-	if c.checkNil(newlineStr, "newline string", ctx.GetStart().GetLine()) {
-		return nil
+	// Add a newline after all display items unless WITH NO ADVANCING is specified
+	if ctx.WithNoAdvancingClause() == nil {
+		newlineStr := c.builder.CreateGlobalStringPtr("\n", fmt.Sprintf(".str_newline%d", c.strCounter))
+		if c.checkNil(newlineStr, "newline string", ctx.GetStart().GetLine()) {
+			return nil
+		}
+		c.strCounter++
+		c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{newlineStr}, "")
 	}
-	c.strCounter++
-	c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{newlineStr}, "")
 
 	return nil
 }
@@ -383,61 +407,7 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 		fmt.Println("Visiting Move Stmt")
 	}
 
-	to := ctx.ExprList(1).AllExpr()[0]
 	from := ctx.ExprList(0).AllExpr()[0]
-
-	toField := c.getFieldSymbol(to.GetText(), to.GetStart().GetLine())
-	if toField == nil {
-		return nil
-	}
-	destPtr := c.module.NamedGlobal(toField.name)
-	if c.checkNil(destPtr, "destination pointer in move", to.GetStart().GetLine()) {
-		return nil
-	}
-
-	if fromId, ok := from.(*parser.IdExprContext); ok {
-		switch strings.ToUpper(fromId.GetText()) {
-		case "HIGH-VALUES":
-			if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
-				valStr := ""
-				for _, char := range toField.picture.raw {
-					if char == '9' {
-						valStr += "9"
-					}
-				}
-				val, _ := strconv.ParseInt(valStr, 10, 64)
-				c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(val), true), destPtr)
-			} else { // Alphanumeric
-				char := llvm.ConstInt(c.context.Int8Type(), 0xff, false)
-				for i := 0; i < toField.picture.length; i++ {
-					indices := []llvm.Value{
-						llvm.ConstInt(c.context.Int32Type(), 0, false),
-						llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
-					}
-					ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
-					c.builder.CreateStore(char, ptr)
-				}
-			}
-			return nil
-		case "LOW-VALUES":
-			// Similar logic for LOW-VALUES
-			if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
-				c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), 0, true), destPtr)
-			} else { // Alphanumeric
-				char := llvm.ConstInt(c.context.Int8Type(), 0x00, false)
-				for i := 0; i < toField.picture.length; i++ {
-					indices := []llvm.Value{
-						llvm.ConstInt(c.context.Int32Type(), 0, false),
-						llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
-					}
-					ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
-					c.builder.CreateStore(char, ptr)
-				}
-			}
-			return nil
-		}
-	}
-
 	fromVal := c.Visit(from)
 	if fromVal == nil {
 		return nil
@@ -447,46 +417,192 @@ func (c *CodeGenerator) VisitMoveStmt(ctx *parser.MoveStmtContext) interface{} {
 		return nil
 	}
 
-	if toField.picture.isNumeric {
-		c.builder.CreateStore(value, destPtr)
-	} else {
-		// String move
-		str := strings.Trim(from.GetText(), "\"")
-		strLen := len(str)
-
-		strName := fmt.Sprintf(".str%d", c.strCounter)
-		c.strCounter++
-		globalStr := c.builder.CreateGlobalStringPtr(str, strName)
-		if c.checkNil(globalStr, "global string for move", from.GetStart().GetLine()) {
-			return nil
+	for _, to := range ctx.ExprList(1).AllExpr() {
+		toField, toSubscript := c.getFieldSymbol(to.GetText(), to.GetStart().GetLine())
+		if toField == nil {
+			continue
+		}
+		destPtr := c.module.NamedGlobal(toField.name)
+		if c.checkNil(destPtr, "destination pointer in move", to.GetStart().GetLine()) {
+			continue
 		}
 
+		var finalDestPtr llvm.Value
+		if toSubscript != "" {
+			// Handle array access
+			idx, err := strconv.Atoi(toSubscript)
+			if err != nil {
+				c.addError(fmt.Sprintf("Invalid subscript: %s", toSubscript), to.GetStart().GetLine())
+				continue
+			}
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				llvm.ConstInt(c.context.Int32Type(), uint64(idx-1), false), // COBOL arrays are 1-based
+			}
+			finalDestPtr = c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int32Type(), toField.occurs), destPtr, indices, "")
+		} else {
+			finalDestPtr = destPtr
+		}
+
+		if fromId, ok := from.(*parser.IdExprContext); ok {
+			switch strings.ToUpper(fromId.GetText()) {
+			case "HIGH-VALUES":
+				if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
+					valStr := ""
+					for _, char := range toField.picture.raw {
+						if char == '9' {
+							valStr += "9"
+						}
+					}
+					val, _ := strconv.ParseInt(valStr, 10, 64)
+					c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(val), true), finalDestPtr)
+				} else { // Alphanumeric
+					char := llvm.ConstInt(c.context.Int8Type(), 0xff, false)
+					for i := 0; i < toField.picture.length; i++ {
+						indices := []llvm.Value{
+							llvm.ConstInt(c.context.Int32Type(), 0, false),
+							llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
+						}
+						ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), finalDestPtr, indices, "")
+						c.builder.CreateStore(char, ptr)
+					}
+				}
+				continue
+			case "LOW-VALUES":
+				// Similar logic for LOW-VALUES
+				if strings.ContainsAny(toField.picture.raw, "9S") { // Heuristic for numeric
+					c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), 0, true), finalDestPtr)
+				} else { // Alphanumeric
+					char := llvm.ConstInt(c.context.Int8Type(), 0x00, false)
+					for i := 0; i < toField.picture.length; i++ {
+						indices := []llvm.Value{
+							llvm.ConstInt(c.context.Int32Type(), 0, false),
+							llvm.ConstInt(c.context.Int32Type(), uint64(i), false),
+						}
+						ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), finalDestPtr, indices, "")
+						c.builder.CreateStore(char, ptr)
+					}
+				}
+				continue
+			}
+		}
+
+		if toField.picture.isNumeric {
+			c.builder.CreateStore(value, finalDestPtr)
+		} else {
+			// String move
+			str := strings.Trim(from.GetText(), "\"")
+			strLen := len(str)
+
+			strName := fmt.Sprintf(".str%d", c.strCounter)
+			c.strCounter++
+			globalStr := c.builder.CreateGlobalStringPtr(str, strName)
+			if c.checkNil(globalStr, "global string for move", from.GetStart().GetLine()) {
+				continue
+			}
+
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+			}
+
+			destGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), finalDestPtr, indices, "")
+			if c.checkNil(destGEP, "dest GEP for move", from.GetStart().GetLine()) {
+				continue
+			}
+			srcGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), int(uint64(strLen+1))), globalStr, indices, "")
+			if c.checkNil(srcGEP, "src GEP for move", from.GetStart().GetLine()) {
+				continue
+			}
+
+			copySize := strLen
+			if toField.picture.length < copySize {
+				copySize = toField.picture.length
+			}
+
+			c.builder.CreateCall(c.memcpyFunc.GlobalValueType(), c.memcpyFunc, []llvm.Value{
+				destGEP,
+				srcGEP,
+				llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
+				llvm.ConstInt(c.context.Int1Type(), 0, false),
+			}, "")
+		}
+	}
+
+	return nil
+}
+
+func (c *CodeGenerator) VisitSubtractStmt(ctx *parser.SubtractStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Subtract Stmt")
+	}
+
+	// Get the value to subtract (e.g., 1). This comes from the first exprList.
+	subtractExpr := ctx.ExprList(0).AllExpr()[0]
+	subtractValRes := c.Visit(subtractExpr)
+	if subtractValRes == nil {
+		c.addError("Subtract value is nil", subtractExpr.GetStart().GetLine())
+		return nil
+	}
+	subtractVal, ok := subtractValRes.(llvm.Value)
+	if !ok || c.checkNil(subtractVal, "subtract value", subtractExpr.GetStart().GetLine()) {
+		return nil
+	}
+
+	// The second expression must be an identifier that we can get a pointer to.
+	// This comes from the second exprList.
+	fromExpr := ctx.ExprList(1).AllExpr()[0]
+	fromIdCtx, ok := fromExpr.(*parser.IdExprContext)
+	if !ok {
+		c.addError("SUBTRACT target must be an identifier", fromExpr.GetStart().GetLine())
+		return nil
+	}
+
+	fieldName := fromIdCtx.GetText()
+	field, subscript := c.getFieldSymbol(fieldName, fromIdCtx.GetStart().GetLine())
+	if field == nil {
+		return nil // Error already added
+	}
+
+	if !field.picture.isNumeric {
+		c.addError(fmt.Sprintf("Cannot perform SUBTRACT on non-numeric field '%s'", field.name), fromIdCtx.GetStart().GetLine())
+		return nil
+	}
+
+	destPtr := c.module.NamedGlobal(field.name)
+	if c.checkNil(destPtr, "subtract target global", fromIdCtx.GetStart().GetLine()) {
+		return nil
+	}
+
+	var finalDestPtr llvm.Value
+	if subscript != "" {
+		var idx llvm.Value
+		// Check if subscript is a literal integer
+		if val, err := strconv.Atoi(subscript); err == nil {
+			idx = llvm.ConstInt(c.context.Int32Type(), uint64(val-1), false) // COBOL is 1-based
+		} else {
+			// Assume it's a variable
+			if local, ok := c.localVars[strings.ToUpper(subscript)]; ok {
+				loadedIdx := c.builder.CreateLoad(c.context.Int32Type(), local, "")
+				idx = c.builder.CreateSub(loadedIdx, llvm.ConstInt(c.context.Int32Type(), 1, false), "") // Adjust for 1-based index
+			} else {
+				c.addError(fmt.Sprintf("Subscript variable '%s' not found", subscript), fromIdCtx.GetStart().GetLine())
+				return nil
+			}
+		}
 		indices := []llvm.Value{
 			llvm.ConstInt(c.context.Int32Type(), 0, false),
-			llvm.ConstInt(c.context.Int32Type(), 0, false),
+			idx,
 		}
-
-		destGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), toField.picture.length), destPtr, indices, "")
-		if c.checkNil(destGEP, "dest GEP for move", from.GetStart().GetLine()) {
-			return nil
-		}
-		srcGEP := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), int(uint64(strLen+1))), globalStr, indices, "")
-		if c.checkNil(srcGEP, "src GEP for move", from.GetStart().GetLine()) {
-			return nil
-		}
-
-		copySize := strLen
-		if toField.picture.length < copySize {
-			copySize = toField.picture.length
-		}
-
-		c.builder.CreateCall(c.memcpyFunc.GlobalValueType(), c.memcpyFunc, []llvm.Value{
-			destGEP,
-			srcGEP,
-			llvm.ConstInt(c.context.Int64Type(), uint64(copySize), false),
-			llvm.ConstInt(c.context.Int1Type(), 0, false),
-		}, "")
+		finalDestPtr = c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int32Type(), field.occurs), destPtr, indices, "")
+	} else {
+		finalDestPtr = destPtr
 	}
+
+	// Perform the subtraction
+	currentVal := c.builder.CreateLoad(c.context.Int32Type(), finalDestPtr, "")
+	newVal := c.builder.CreateSub(currentVal, subtractVal, "subtmp")
+	c.builder.CreateStore(newVal, finalDestPtr)
 
 	return nil
 }
@@ -501,6 +617,8 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	c.stopped = true
 	return nil
 }
+
+
 
 func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	if c.verbose {
@@ -544,17 +662,66 @@ func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	return nil
 }
 
+func (c *CodeGenerator) VisitNextSentenceStmt(ctx *parser.NextSentenceStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Next Sentence Stmt")
+	}
+	// This is a simplification. A more robust implementation would involve
+	// creating basic blocks for each sentence and branching to them.
+	return nil
+}
+
 func (c *CodeGenerator) VisitCondition(ctx *parser.ConditionContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Condition")
 	}
-	// For now, we only handle simple conditions.
-	// In the future, we’ll handle AND/OR/XOR here.
-	if len(ctx.AllSimpleCond()) > 0 {
-		return c.Visit(ctx.SimpleCond(0))
+
+	if len(ctx.AllSimpleCond()) == 0 {
+		return nil
 	}
-	c.addError("complex conditions not yet supported", ctx.GetStart().GetLine())
-	return nil
+
+	// Handle the first condition
+	firstCond := ctx.SimpleCond(0)
+	left := c.Visit(firstCond.Expr(0))
+	result := c.Visit(firstCond).(llvm.Value)
+	firstComparator := firstCond.Comparator()
+
+	// Chain the rest of the conditions with OR
+	for i := 1; i < len(ctx.AllSimpleCond()); i++ {
+		nextCondCtx := ctx.SimpleCond(i)
+		// This is a contracted IF, so we need to use the left from the first condition
+		if len(nextCondCtx.AllExpr()) == 1 {
+			right := c.Visit(nextCondCtx.Expr(0)).(llvm.Value)
+			var pred llvm.IntPredicate
+			comparator := firstComparator
+			if nextCondCtx.Comparator() != nil {
+				comparator = nextCondCtx.Comparator()
+			}
+
+			switch {
+			case comparator.EQ() != nil:
+				pred = llvm.IntEQ
+			case comparator.GT() != nil:
+				pred = llvm.IntSGT
+			case comparator.LT() != nil:
+				pred = llvm.IntSLT
+			case comparator.GE() != nil:
+				pred = llvm.IntSGE
+			case comparator.LE() != nil:
+				pred = llvm.IntSLE
+			default:
+				c.addError(fmt.Sprintf("Unsupported comparator: %s", comparator.GetText()), nextCondCtx.GetStart().GetLine())
+				return llvm.Value{}
+			}
+			nextCond := c.builder.CreateICmp(pred, left.(llvm.Value), right, "")
+			result = c.builder.CreateOr(result, nextCond, "")
+		} else {
+			nextCond := c.Visit(nextCondCtx).(llvm.Value)
+			result = c.builder.CreateOr(result, nextCond, "")
+		}
+	}
+
+	return result
 }
 
 func (c *CodeGenerator) VisitSimpleCond(ctx *parser.SimpleCondContext) interface{} {
@@ -614,12 +781,47 @@ func (c *CodeGenerator) VisitIdExpr(ctx *parser.IdExprContext) interface{} {
 		fmt.Printf("Visiting IdExpr: %s\n", ctx.GetText())
 	}
 	fieldName := ctx.GetText()
-	if field := c.getFieldSymbol(fieldName, ctx.GetStart().GetLine()); field != nil {
+
+	// Check for local variables (loop counters)
+	if local, ok := c.localVars[strings.ToUpper(fieldName)]; ok {
+		return c.builder.CreateLoad(c.context.Int32Type(), local, "")
+	}
+
+	field, subscript := c.getFieldSymbol(fieldName, ctx.GetStart().GetLine())
+	if field != nil {
 		destPtr := c.module.NamedGlobal(field.name)
 		if destPtr.IsNil() {
 			c.addError(fmt.Sprintf("Global variable %s not found", field.name), ctx.GetStart().GetLine())
 			return llvm.Value{}
 		}
+
+		if subscript != "" {
+			// Handle array access
+			var idx llvm.Value
+			if val, err := strconv.Atoi(subscript); err == nil {
+				idx = llvm.ConstInt(c.context.Int32Type(), uint64(val-1), false) // COBOL arrays are 1-based
+			} else {
+				// It's a variable subscript
+				if local, ok := c.localVars[strings.ToUpper(subscript)]; ok {
+					idx = c.builder.CreateLoad(c.context.Int32Type(), local, "")
+					idx = c.builder.CreateSub(idx, llvm.ConstInt(c.context.Int32Type(), 1, false), "") // COBOL arrays are 1-based
+				} else {
+					c.addError(fmt.Sprintf("Subscript variable '%s' not found", subscript), ctx.GetStart().GetLine())
+					return llvm.Value{}
+				}
+			}
+
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				idx,
+			}
+			ptr := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int32Type(), field.occurs), destPtr, indices, "")
+			if field.picture.isNumeric {
+				return c.builder.CreateLoad(c.context.Int32Type(), ptr, "")
+			}
+			return ptr
+		}
+
 		if field.picture.isNumeric {
 			val := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
 			if c.verbose {
@@ -629,7 +831,7 @@ func (c *CodeGenerator) VisitIdExpr(ctx *parser.IdExprContext) interface{} {
 		}
 		if c.verbose {
 			fmt.Printf("  Returning pointer for IdExpr %s\n", ctx.GetText())
-		}
+	}
 		return destPtr
 	}
 	return llvm.Value{}
@@ -659,4 +861,98 @@ func (c *CodeGenerator) VisitLitExpr(ctx *parser.LitExprContext) interface{} {
 	}
 	c.addError(fmt.Sprintf("Unsupported literal type: %s", litStr), ctx.GetStart().GetLine())
 	return llvm.Value{}
+}
+
+func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Loop Stmt")
+	}
+
+	startFunc := c.builder.GetInsertBlock().Parent()
+	loopHeader := c.context.AddBasicBlock(startFunc, "loop.header")
+	loopBody := c.context.AddBasicBlock(startFunc, "loop.body")
+	loopExit := c.context.AddBasicBlock(startFunc, "loop.exit")
+
+	// --- VARYING Clause ---
+	var counterPtr llvm.Value
+	var limit, step llvm.Value
+	hasVarying := false
+
+	// Find the VARYING clause in the loop content
+	for _, content := range ctx.AllLoopContent() {
+		if content.LoopControl() != nil && content.LoopControl().VaryingClause() != nil {
+			hasVarying = true
+			varying := content.LoopControl().VaryingClause()
+			counterName := varying.IdentifierSegment().GetText()
+
+			// Create an alloca for the loop counter in the entry block
+			entryBuilder := c.context.NewBuilder()
+			entryBuilder.SetInsertPointAtEnd(c.mainEntryBlock)
+			counterPtr = entryBuilder.CreateAlloca(c.context.Int32Type(), counterName)
+			entryBuilder.Dispose()
+
+			c.localVars[strings.ToUpper(counterName)] = counterPtr
+
+			// Get start, end, and step values
+			startVal := llvm.ConstInt(c.context.Int32Type(), 1, true) // Default start is 1
+			if len(varying.AllExpr()) > 0 {
+				startVal = c.Visit(varying.Expr(0)).(llvm.Value)
+			}
+
+			limit = llvm.ConstInt(c.context.Int32Type(), 2147483647, true) // Default limit is max int
+			if len(varying.AllExpr()) > 1 {
+				limit = c.Visit(varying.Expr(1)).(llvm.Value)
+			}
+
+			step = llvm.ConstInt(c.context.Int32Type(), 1, true) // Default step is 1
+			if len(varying.AllExpr()) > 2 {
+				step = c.Visit(varying.Expr(2)).(llvm.Value)
+			}
+
+			c.builder.CreateStore(startVal, counterPtr)
+			break // Assume only one VARYING clause for now
+		}
+	}
+
+	c.builder.CreateBr(loopHeader)
+	c.builder.SetInsertPointAtEnd(loopHeader)
+
+	// --- Loop Condition ---
+	if hasVarying {
+		counter := c.builder.CreateLoad(c.context.Int32Type(), counterPtr, "")
+		cond := c.builder.CreateICmp(llvm.IntSLE, counter, limit, "loop.cond")
+		c.builder.CreateCondBr(cond, loopBody, loopExit)
+	} else {
+		// Infinite loop
+		c.builder.CreateBr(loopBody)
+	}
+
+	// --- Loop Body ---
+	c.builder.SetInsertPointAtEnd(loopBody)
+	for _, content := range ctx.AllLoopContent() {
+		if content.Sentence() != nil {
+			c.Visit(content.Sentence())
+		} else if content.Statement() != nil {
+			c.Visit(content.Statement())
+		}
+	}
+
+	// --- Loop Update ---
+	if hasVarying {
+		counter := c.builder.CreateLoad(c.context.Int32Type(), counterPtr, "")
+		nextVal := c.builder.CreateAdd(counter, step, "next.val")
+		c.builder.CreateStore(nextVal, counterPtr)
+	}
+
+	c.builder.CreateBr(loopHeader)
+	c.builder.SetInsertPointAtEnd(loopExit)
+
+	return nil
+}
+
+func (c *CodeGenerator) VisitVaryingClause(ctx *parser.VaryingClauseContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Varying Clause")
+	}
+	return nil
 }
