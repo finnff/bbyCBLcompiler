@@ -713,8 +713,33 @@ func (v *SemanticChecker) VisitCallStmt(ctx *parser.CallStmtContext) interface{}
 }
 
 func (v *SemanticChecker) VisitDivideStmt(ctx *parser.DivideStmtContext) interface{} {
-	sources := ctx.ExprList(0).AllExpr()
-	dests := ctx.ExprList(1).AllExpr()
+	var sources, dests []parser.IExprContext
+	var givings []parser.IGivingClauseContext
+	var hasRemainder bool
+	var remainderExprList parser.IExprListContext
+
+	switch actualCtx := ctx.GetChildren()[0].(type) {
+	case *parser.DivideIntoFormContext:
+		sources = actualCtx.ExprList(0).AllExpr()
+		dests = actualCtx.ExprList(1).AllExpr()
+		givings = actualCtx.AllGivingClause()
+		hasRemainder = actualCtx.REMAINDER() != nil
+		if hasRemainder {
+			remainderExprList = actualCtx.ExprList(len(actualCtx.AllExprList()) - 1)
+		}
+	case *parser.DivideByFormContext:
+		sources = actualCtx.ExprList(0).AllExpr() // Dividend
+		dests = actualCtx.ExprList(1).AllExpr()   // Divisor
+		givings = actualCtx.AllGivingClause()
+		hasRemainder = actualCtx.REMAINDER() != nil
+		if hasRemainder {
+			remainderExprList = actualCtx.ExprList(len(actualCtx.AllExprList()) - 1)
+		}
+	default:
+		v.addError("Unknown DIVIDE statement form", ctx.GetStart().GetLine())
+		return nil
+	}
+
 	operands := append([]parser.IExprContext{}, sources...)
 	operands = append(operands, dests...)
 	for _, operand := range operands {
@@ -728,7 +753,7 @@ func (v *SemanticChecker) VisitDivideStmt(ctx *parser.DivideStmtContext) interfa
 			}
 		}
 	}
-	givings := ctx.AllGivingClause()
+
 	if len(givings) > 0 {
 		for _, giving := range givings {
 			for _, res := range giving.ExprList().AllExpr() {
@@ -752,9 +777,8 @@ func (v *SemanticChecker) VisitDivideStmt(ctx *parser.DivideStmtContext) interfa
 			}
 		}
 	}
-	if ctx.REMAINDER() != nil {
-		allExprLists := ctx.AllExprList()
-		remainderExprList := allExprLists[len(allExprLists)-1]
+
+	if hasRemainder {
 		for _, rem := range remainderExprList.AllExpr() {
 			field := v.getFieldFromExpr(rem, rem.GetStart().GetLine())
 			if field != nil {

@@ -118,9 +118,9 @@ simpleId
     | DISPLAY | OF | BY | COPY | VARYING | STOP | LIKE
     | OFF | ON | ERROR | PROCEED | REFERENCE | VALUE | CONTENT
     | OTHER | NOT | OR | AND | XOR | TIMES | USING | WHILE | UNTIL
-    | GIVING | INTO | THROUGH | GO | IF | LOOP | MULTIPLY
+    | INTO | THROUGH | GO | IF | LOOP | MULTIPLY
     | DIVIDE | SUBTRACT | CALL | ACCEPT | PERFORM | SIGNAL | ALTER
-    | EVALUATE | WHEN | RUN | REMAINDER | SIZE | DELIMITED | WITH
+    | EVALUATE | WHEN | RUN | SIZE | DELIMITED | WITH
     | NO | ADVANCING | ALSO | NEXT | SENTENCE
     ;
 
@@ -163,7 +163,10 @@ withNoAdvancingClause
     : WITH NO ADVANCING
     | WITH_NO_ADVANCING
     ;
-divideStmt       : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)? ;
+divideStmt
+    : DIVIDE exprList INTO exprList givingClause* (REMAINDER exprList)?    # divideIntoForm
+    | DIVIDE exprList BY exprList givingClause* (REMAINDER exprList)?      # divideByForm
+    ;
 evaluateStmt     : EVALUATE evalSubject? (ALSO evalSubject)* whenClause+ (END_EVALUATE | END identifier?) ;
 givingClause     : GIVING exprList                                       ;
 gotoStmt         : GO TO exprList                                        ;

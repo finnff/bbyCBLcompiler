@@ -173,8 +173,13 @@ func (v *ASTPrinter) VisitMultiplyStmt(ctx *parser.MultiplyStmtContext) interfac
 	return v.VisitChildren(ctx)
 }
 
-func (v *ASTPrinter) VisitDivideStmt(ctx *parser.DivideStmtContext) interface{} {
-	fmt.Printf("%s%sDivideStatement%s\n", v.indent(), colorMagenta, colorReset)
+func (v *ASTPrinter) VisitDivideIntoForm(ctx *parser.DivideIntoFormContext) interface{} {
+	fmt.Printf("%sDivideStatement (INTO)\n", v.indent())
+	return v.VisitChildren(ctx)
+}
+
+func (v *ASTPrinter) VisitDivideByForm(ctx *parser.DivideByFormContext) interface{} {
+	fmt.Printf("%sDivideStatement (BY)\n", v.indent())
 	return v.VisitChildren(ctx)
 }
 
