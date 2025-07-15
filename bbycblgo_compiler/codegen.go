@@ -292,45 +292,22 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	c.mainEntryBlock = c.context.AddBasicBlock(mainFunc, "entry")
 	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 
-	// Create basic blocks for each paragraph
-	for _, p := range ctx.AllParagraph() {
-		paraName := p.Identifier().GetText()
-		if paraName != "" {
-			c.paragraphBlocks[strings.ToUpper(paraName)] = c.context.AddBasicBlock(mainFunc, paraName)
-		}
+	// Visit sentences directly under Procedure Division (if any)
+	if c.verbose {
+		fmt.Printf("Main entry block before visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
+	}
+	for _, sentence := range ctx.AllSentence() {
+		c.Visit(sentence)
+	}
+	if c.verbose {
+		fmt.Printf("Main entry block after visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
 	}
 
-	// Jump to the first paragraph from main entry
-	if len(ctx.AllParagraph()) > 0 {
-		firstParagraph := ctx.AllParagraph()[0]
-		paraName := firstParagraph.Identifier().GetText()
-		if strings.ToUpper(paraName) != "HANDLER" {
-			if block, ok := c.paragraphBlocks[strings.ToUpper(paraName)]; ok {
-				c.builder.CreateBr(block)
-			}
-		}
-	}
-
-	// Populate ALL paragraph blocks and ensure termination
-	for _, p := range ctx.AllParagraph() {
-		paraName := p.Identifier().GetText()
-		if paraName != "" {
-			upperParaName := strings.ToUpper(paraName)
-			if block, ok := c.paragraphBlocks[upperParaName]; ok {
-				c.builder.SetInsertPointAtEnd(block)
-				c.stopped = false // Reset stopped flag for each paragraph
-				c.Visit(p)
-
-				// After visiting paragraph, ensure it's terminated
-				if block.LastInstruction().IsNil() { // Check if the block actually has a terminator
-					c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
-				}
-			}
-		}
-	}
+	
 
 	// Final safety check - ensure main entry block is terminated
-	if c.mainEntryBlock.LastInstruction().IsNil() {
+	// Always add a return statement unless execution was explicitly stopped
+	if !c.stopped {
 		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
 	}
@@ -887,6 +864,7 @@ func (c *CodeGenerator) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
 	targetName := strings.ToUpper(ctx.ExprList().GetText())
 	if block, ok := c.paragraphBlocks[targetName]; ok {
 		c.builder.CreateBr(block)
+		c.stopped = true
 	} else {
 		c.addError(fmt.Sprintf("Paragraph '%s' not found for GO TO", targetName), ctx.GetStart().GetLine())
 	}
@@ -1088,6 +1066,73 @@ func (c *CodeGenerator) VisitEvaluateStmt(ctx *parser.EvaluateStmtContext) inter
 	return nil
 }
 
+
+func (c *CodeGenerator) VisitAcceptStmt(ctx *parser.AcceptStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Accept Stmt")
+	}
+
+	// For now, only handle single identifier in ACCEPT statement
+	if len(ctx.ExprList().AllExpr()) != 1 {
+		c.addError("ACCEPT statement currently only supports a single identifier", ctx.GetStart().GetLine())
+		return nil
+	}
+
+	acceptTargetExpr := ctx.ExprList().Expr(0)
+	acceptTargetIdCtx, ok := acceptTargetExpr.(*parser.IdExprContext)
+	if !ok {
+		c.addError("ACCEPT target must be an identifier", acceptTargetExpr.GetStart().GetLine())
+		return nil
+	}
+
+	fieldName := acceptTargetIdCtx.GetText()
+	field, _ := c.getFieldSymbol(fieldName, acceptTargetIdCtx.GetStart().GetLine())
+	if field == nil {
+		return nil // Error already added
+	}
+
+	destPtr := c.module.NamedGlobal(field.name)
+	if c.checkNil(destPtr, "accept target global", acceptTargetIdCtx.GetStart().GetLine()) {
+		return nil
+	}
+
+	// For numeric fields, use %d format specifier and scanf
+	if field.picture.isNumeric {
+		formatStr := c.builder.CreateGlobalStringPtr("%d", fmt.Sprintf(".str_scanf_format%d", c.strCounter))
+		c.strCounter++
+
+		// Cast the destination pointer to i32* for scanf
+		ptrType := llvm.PointerType(c.context.Int32Type(), 0)
+		castedPtr := c.builder.CreateBitCast(destPtr, ptrType, "")
+
+		scanfFunc := c.module.NamedFunction("scanf")
+		if scanfFunc.IsNil() {
+			scanfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
+			scanfFunc = llvm.AddFunction(c.module, "scanf", scanfType)
+		}
+
+		c.builder.CreateCall(scanfFunc.GlobalValueType(), scanfFunc, []llvm.Value{formatStr, castedPtr}, "")
+	} else {
+		// For alphanumeric fields, use %s format specifier and scanf
+		// Need to be careful with buffer overflows. For now, assume fixed size.
+		formatStr := c.builder.CreateGlobalStringPtr(fmt.Sprintf("%%s"), fmt.Sprintf(".str_scanf_format%d", c.strCounter))
+		c.strCounter++
+
+		// Cast the destination pointer to i8* for scanf
+		ptrType := llvm.PointerType(c.context.Int8Type(), 0)
+		castedPtr := c.builder.CreateBitCast(destPtr, ptrType, "")
+
+		scanfFunc := c.module.NamedFunction("scanf")
+		if scanfFunc.IsNil() {
+			scanfType := llvm.FunctionType(c.context.Int32Type(), []llvm.Type{llvm.PointerType(c.context.Int8Type(), 0)}, true)
+			scanfFunc = llvm.AddFunction(c.module, "scanf", scanfType)
+		}
+
+		c.builder.CreateCall(scanfFunc.GlobalValueType(), scanfFunc, []llvm.Value{formatStr, castedPtr}, "")
+	}
+
+	return nil
+}
 
 func (c *CodeGenerator) VisitNextSentenceStmt(ctx *parser.NextSentenceStmtContext) interface{} {
 	if c.verbose {
