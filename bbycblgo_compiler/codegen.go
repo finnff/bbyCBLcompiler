@@ -17,21 +17,21 @@ var llvmInit sync.Once
 // CodeGenerator holds the state for LLVM IR generation.
 type CodeGenerator struct {
 	*parser.BasebbyCBLVisitor
-	context        llvm.Context
-	module         llvm.Module
-	builder        llvm.Builder
-	targetData     llvm.TargetData
-	symbolTable    *SymbolTable
-	errors         []SemanticError
-	strCounter     int
-	tempRegCounter int
-	verbose        bool
-	sourceFilename string
-	mainEntryBlock llvm.BasicBlock
-	printfFunc     llvm.Value
-	memcpyFunc     llvm.Value
-	stopped        bool
-	localVars      map[string]llvm.Value
+	context         llvm.Context
+	module          llvm.Module
+	builder         llvm.Builder
+	targetData      llvm.TargetData
+	symbolTable     *SymbolTable
+	errors          []SemanticError
+	strCounter      int
+	tempRegCounter  int
+	verbose         bool
+	sourceFilename  string
+	mainEntryBlock  llvm.BasicBlock
+	printfFunc      llvm.Value
+	memcpyFunc      llvm.Value
+	stopped         bool
+	localVars       map[string]llvm.Value
 	paragraphBlocks map[string]llvm.BasicBlock
 }
 
@@ -139,6 +139,23 @@ func (c *CodeGenerator) checkNil(val llvm.Value, msg string, line int) bool {
 	return false
 }
 
+func (c *CodeGenerator) getActualPicture(field *FieldSymbol) *PictureType {
+	if field == nil {
+		return nil
+	}
+	if field.picture != nil {
+		return field.picture
+	}
+	if field.likeRef != "" {
+		// Resolve the LIKE reference
+		if likeFields, ok := c.symbolTable.rootScope.fields[strings.ToUpper(field.likeRef)]; ok && len(likeFields) > 0 {
+			// Assuming the first one is the correct one for now, or needs more robust resolution
+			return c.getActualPicture(likeFields[0]) // Recursive call to handle chained LIKEs
+		}
+	}
+	return nil
+}
+
 func (c *CodeGenerator) getFieldSymbol(name string, line int) (*FieldSymbol, string) {
 	// Check for subscript
 	subscript := ""
@@ -150,7 +167,7 @@ func (c *CodeGenerator) getFieldSymbol(name string, line int) (*FieldSymbol, str
 
 	uname := strings.ToUpper(name)
 	if fields, ok := c.symbolTable.rootScope.fields[uname]; ok && len(fields) > 0 {
-		// For now, just return the first field found. 
+		// For now, just return the first field found.
 		// A more robust solution would involve resolving qualified names.
 		return fields[0], subscript
 	}
@@ -213,25 +230,37 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 		fieldName := dataEntry.Identifier().GetText()
 		field, _ := c.getFieldSymbol(fieldName, dataEntry.GetStart().GetLine())
 		if field != nil {
+			actualPicture := c.getActualPicture(field)
+			if actualPicture == nil {
+				c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), dataEntry.GetStart().GetLine())
+				continue
+			}
+
 			var global llvm.Value
 			if field.occurs > 0 {
-				if field.picture.isNumeric {
+				if c.verbose {
+					fmt.Printf("DataEntry: %s, Picture: %v\n", field.name, actualPicture)
+				}
+				if actualPicture.isNumeric {
 					global = llvm.AddGlobal(c.module, llvm.ArrayType(c.context.Int32Type(), field.occurs), field.name)
 					global.SetInitializer(llvm.ConstNull(llvm.ArrayType(c.context.Int32Type(), field.occurs)))
 					global.SetAlignment(4)
 				} else {
-					globalType := llvm.ArrayType(llvm.ArrayType(c.context.Int8Type(), field.picture.length), field.occurs)
+					globalType := llvm.ArrayType(llvm.ArrayType(c.context.Int8Type(), actualPicture.length), field.occurs)
 					global = llvm.AddGlobal(c.module, globalType, field.name)
 					global.SetInitializer(llvm.ConstNull(globalType))
 					global.SetAlignment(1)
 				}
 			} else {
-				if field.picture.isNumeric {
+				if c.verbose {
+					fmt.Printf("DataEntry: %s, Picture: %v\n", field.name, actualPicture)
+				}
+				if actualPicture.isNumeric {
 					global = llvm.AddGlobal(c.module, c.context.Int32Type(), field.name)
 					global.SetInitializer(llvm.ConstInt(c.context.Int32Type(), 0, false))
 					global.SetAlignment(4)
 				} else {
-					globalType := llvm.ArrayType(c.context.Int8Type(), field.picture.length)
+					globalType := llvm.ArrayType(c.context.Int8Type(), actualPicture.length)
 					global = llvm.AddGlobal(c.module, globalType, field.name)
 					global.SetInitializer(llvm.ConstNull(globalType))
 					global.SetAlignment(1)
@@ -303,8 +332,6 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		fmt.Printf("Main entry block after visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
 	}
 
-	
-
 	// Final safety check - ensure main entry block is terminated
 	// Always add a return statement unless execution was explicitly stopped
 	if !c.stopped {
@@ -340,38 +367,61 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 			continue
 		}
 
-		if id, ok := item.Expr().(*parser.IdExprContext); ok {
-			fieldName := id.GetText()
-			field, _ := c.getFieldSymbol(fieldName, id.GetStart().GetLine())
+		// Get the actual picture for the field being displayed
+		var actualPicture *PictureType
+		if id, isId := item.Expr().(*parser.IdExprContext); isId {
+			field, _ := c.getFieldSymbol(id.GetText(), id.GetStart().GetLine())
 			if field != nil {
-				if strings.ContainsAny(field.picture.raw, "9S") { // Heuristic for numeric
-					formatString += "%d"
-					destPtr := c.module.NamedGlobal(field.name)
-					loadedVar := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
-					printfArgs = append(printfArgs, loadedVar)
-				} else {
-					formatString += "%.*s"
-					destPtr := c.module.NamedGlobal(field.name)
-					indices := []llvm.Value{
-						llvm.ConstInt(c.context.Int32Type(), 0, false),
-						llvm.ConstInt(c.context.Int32Type(), 0, false),
-					}
-					gep := c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int8Type(), field.picture.length), destPtr, indices, "")
-					printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(field.picture.length), false), gep)
+				actualPicture = c.getActualPicture(field)
+				// If actualPicture is still nil, it means the LIKE reference couldn't be resolved
+				if actualPicture == nil {
+					c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), id.GetStart().GetLine())
+					continue
 				}
 			}
-		} else if lit, ok := item.Expr().(*parser.LitExprContext); ok {
+		} else if lit, isLit := item.Expr().(*parser.LitExprContext); isLit {
+			// For literals, determine type from literal itself
 			litStr := lit.GetText()
 			if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
-				formatString += "%d"
-				printfArgs = append(printfArgs, value)
+				actualPicture = &PictureType{isNumeric: true}
+			} else if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
+				actualPicture = &PictureType{isAlphaNum: true, length: len(strings.Trim(litStr, "\""))}
+			}
+		}
+
+		if actualPicture == nil {
+			c.addError(fmt.Sprintf("Could not determine type for display item: %s", item.Expr().GetText()), item.GetStart().GetLine())
+			continue
+		}
+
+		if actualPicture.isNumeric {
+			formatString += "%d"
+			// If it's a pointer to an integer (e.g., from IdExpr for a numeric field), load it
+			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntTypeKind {
+				loadedVal := c.builder.CreateLoad(c.context.Int32Type(), value, "")
+				printfArgs = append(printfArgs, loadedVal)
 			} else {
-				str := strings.Trim(lit.GetText(), "\"")
-				strLen := len(str)
-				formatString += "%.*s"
-				globalStr := c.builder.CreateGlobalStringPtr(str, fmt.Sprintf(".str_lit%d", c.strCounter))
-				c.strCounter++
-				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(strLen), false), globalStr)
+				printfArgs = append(printfArgs, value)
+			}
+		} else { // Alphanumeric
+			formatString += "%.*s"
+			// If value is already a pointer to i8 (e.g., from IdExpr for an alphanumeric field or global string literal)
+			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntTypeKind && value.Type().ElementType().IntTypeWidth() == 8 {
+				// This is already a ptr to i8, use directly
+				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(actualPicture.length), false), value)
+			} else if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.ArrayTypeKind {
+				// This is a pointer to an array (e.g., i8[N]*), need to GEP to i8*
+				arrayType := value.Type().ElementType()
+				indices := []llvm.Value{
+					llvm.ConstInt(c.context.Int32Type(), 0, false),
+					llvm.ConstInt(c.context.Int32Type(), 0, false),
+				}
+				gep := c.builder.CreateInBoundsGEP(arrayType, value, indices, "")
+				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(actualPicture.length), false), gep)
+			} else {
+				// Fallback for other cases, might need more specific handling
+				c.addError(fmt.Sprintf("Unsupported type for alphanumeric display: %v", value.Type()), item.GetStart().GetLine())
+				continue
 			}
 		}
 	}
@@ -719,7 +769,13 @@ func (c *CodeGenerator) VisitSubtractStmt(ctx *parser.SubtractStmtContext) inter
 		return nil // Error already added
 	}
 
-	if !field.picture.isNumeric {
+	actualPicture := c.getActualPicture(field)
+	if actualPicture == nil {
+		c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), fromIdCtx.GetStart().GetLine())
+		return nil
+	}
+
+	if !actualPicture.isNumeric {
 		c.addError(fmt.Sprintf("Cannot perform SUBTRACT on non-numeric field '%s'", field.name), fromIdCtx.GetStart().GetLine())
 		return nil
 	}
@@ -794,7 +850,13 @@ func (c *CodeGenerator) VisitMultiplyStmt(ctx *parser.MultiplyStmtContext) inter
 			continue // Error already added
 		}
 
-		if !field.picture.isNumeric {
+		actualPicture := c.getActualPicture(field)
+		if actualPicture == nil {
+			c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), targetIdCtx.GetStart().GetLine())
+			continue
+		}
+
+		if !actualPicture.isNumeric {
 			c.addError(fmt.Sprintf("Cannot perform MULTIPLY on non-numeric field '%s'", field.name), targetIdCtx.GetStart().GetLine())
 			continue
 		}
@@ -946,8 +1008,6 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	return nil
 }
 
-
-
 func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting If Stmt")
@@ -1066,7 +1126,6 @@ func (c *CodeGenerator) VisitEvaluateStmt(ctx *parser.EvaluateStmtContext) inter
 	return nil
 }
 
-
 func (c *CodeGenerator) VisitAcceptStmt(ctx *parser.AcceptStmtContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Accept Stmt")
@@ -1091,13 +1150,19 @@ func (c *CodeGenerator) VisitAcceptStmt(ctx *parser.AcceptStmtContext) interface
 		return nil // Error already added
 	}
 
+	actualPicture := c.getActualPicture(field)
+	if actualPicture == nil {
+		c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), acceptTargetIdCtx.GetStart().GetLine())
+		return nil
+	}
+
 	destPtr := c.module.NamedGlobal(field.name)
 	if c.checkNil(destPtr, "accept target global", acceptTargetIdCtx.GetStart().GetLine()) {
 		return nil
 	}
 
 	// For numeric fields, use %d format specifier and scanf
-	if field.picture.isNumeric {
+	if actualPicture.isNumeric {
 		formatStr := c.builder.CreateGlobalStringPtr("%d", fmt.Sprintf(".str_scanf_format%d", c.strCounter))
 		c.strCounter++
 
@@ -1266,6 +1331,12 @@ func (c *CodeGenerator) VisitIdExpr(ctx *parser.IdExprContext) interface{} {
 	// If not a local var, check for global field symbol
 	field, subscript := c.getFieldSymbol(fieldName, ctx.GetStart().GetLine())
 	if field != nil {
+		actualPicture := c.getActualPicture(field)
+		if actualPicture == nil {
+			c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), ctx.GetStart().GetLine())
+			return llvm.Value{}
+		}
+
 		destPtr := c.module.NamedGlobal(field.name)
 		if destPtr.IsNil() {
 			c.addError(fmt.Sprintf("Global variable %s not found", field.name), ctx.GetStart().GetLine())
@@ -1294,24 +1365,29 @@ func (c *CodeGenerator) VisitIdExpr(ctx *parser.IdExprContext) interface{} {
 				llvm.ConstInt(c.context.Int32Type(), 0, false),
 				idx,
 			}
-			
+
 			var ptr llvm.Value
 			if field.occurs > 0 {
-				arrayType := llvm.ArrayType(c.context.Int32Type(), field.occurs)
-				ptr = c.builder.CreateInBoundsGEP(arrayType, destPtr, indices, "")
+				if actualPicture.isNumeric {
+					arrayType := llvm.ArrayType(c.context.Int32Type(), field.occurs)
+					ptr = c.builder.CreateInBoundsGEP(arrayType, destPtr, indices, "")
+				} else {
+					arrayType := llvm.ArrayType(llvm.ArrayType(c.context.Int8Type(), actualPicture.length), field.occurs)
+					ptr = c.builder.CreateInBoundsGEP(arrayType, destPtr, indices, "")
+				}
 			} else {
 				// This case should ideally not be hit if subscript is present
 				// but as a fallback, treat as a simple pointer.
 				ptr = destPtr
 			}
 
-			if field.picture.isNumeric {
+			if actualPicture.isNumeric {
 				return c.builder.CreateLoad(c.context.Int32Type(), ptr, "")
 			}
 			return ptr
 		}
 
-		if field.picture.isNumeric {
+		if actualPicture.isNumeric {
 			val := c.builder.CreateLoad(c.context.Int32Type(), destPtr, "")
 			if c.verbose {
 				fmt.Printf("  Loaded IdExpr %s as %v\n", ctx.GetText(), val)

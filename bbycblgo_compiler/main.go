@@ -368,7 +368,7 @@ func compileFile(filepath string, verbose bool) {
 	// --- End Semantic Analysis ---
 
 	// Generate LLVM IR
-	ir, codegenErrors := Generate(tree, builder.symbolTable, verbose, filepath)
+	ir, codegenErrors := Generate(tree, checker.symbolTable, verbose, filepath)
 	if len(codegenErrors) > 0 {
 		fmt.Printf("%sCode generation errors in %s:%s\n", ColorRed, filepath, ColorReset)
 		for _, e := range codegenErrors {

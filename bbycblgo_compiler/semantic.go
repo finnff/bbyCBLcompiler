@@ -485,8 +485,13 @@ func (v *SemanticChecker) VisitDataEntry(ctx *parser.DataEntryContext) interface
 				v.addError(fmt.Sprintf("Field '%s' in LIKE clause for '%s' not found", currentField.likeRef, name), ctx.GetStart().GetLine())
 				return nil
 			}
+			
 			if likeTarget == currentField {
 				v.addError(fmt.Sprintf("Recursive LIKE clause for field '%s'", name), ctx.GetStart().GetLine())
+				return nil
+			}
+			if likeTarget.picture == nil {
+				v.addError(fmt.Sprintf("LIKE target '%s' has no PICTURE clause defined", likeTarget.name), ctx.GetStart().GetLine())
 				return nil
 			}
 			currentField.picture = likeTarget.picture
