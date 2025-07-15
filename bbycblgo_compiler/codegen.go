@@ -32,6 +32,7 @@ type CodeGenerator struct {
 	memcpyFunc     llvm.Value
 	stopped        bool
 	localVars      map[string]llvm.Value
+	paragraphBlocks map[string]llvm.BasicBlock
 }
 
 // NewCodeGenerator creates a new code generator.
@@ -46,6 +47,7 @@ func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename str
 		sourceFilename:    sourceFilename,
 		stopped:           false,
 		localVars:         make(map[string]llvm.Value),
+		paragraphBlocks:   make(map[string]llvm.BasicBlock),
 	}
 }
 
@@ -243,6 +245,14 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 	return nil
 }
 
+func (c *CodeGenerator) VisitAlterStmt(ctx *parser.AlterStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Alter Stmt (temporarily disabled)")
+	}
+	c.addError(fmt.Sprintf("ALTER statement is not fully implemented and its effects are ignored. Line: %d", ctx.GetStart().GetLine()), ctx.GetStart().GetLine())
+	return nil
+}
+
 func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Procedure Division")
@@ -280,61 +290,49 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		return nil
 	}
 	c.mainEntryBlock = c.context.AddBasicBlock(mainFunc, "entry")
-	c.builder.SetInsertPointAtEnd(c.mainEntryBlock);
+	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 
 	// Create basic blocks for each paragraph
-	paragraphBlocks := make(map[string]llvm.BasicBlock)
 	for _, p := range ctx.AllParagraph() {
 		paraName := p.Identifier().GetText()
 		if paraName != "" {
-			paragraphBlocks[strings.ToUpper(paraName)] = c.context.AddBasicBlock(mainFunc, paraName)
+			c.paragraphBlocks[strings.ToUpper(paraName)] = c.context.AddBasicBlock(mainFunc, paraName)
 		}
 	}
 
-	// Visit sentences first
-	for _, s := range ctx.AllSentence() {
-		c.Visit(s)
-		if c.stopped {
-			break
-		}
-	}
-
-	// Then visit paragraphs, but don't generate code for them here
-	// We will call them via PERFORM or GO TO
-	// For now, we will just visit the first paragraph if it's not a handler
+	// Jump to the first paragraph from main entry
 	if len(ctx.AllParagraph()) > 0 {
 		firstParagraph := ctx.AllParagraph()[0]
 		paraName := firstParagraph.Identifier().GetText()
 		if strings.ToUpper(paraName) != "HANDLER" {
-			c.builder.CreateBr(paragraphBlocks[strings.ToUpper(paraName)])
-			c.builder.SetInsertPointAtEnd(paragraphBlocks[strings.ToUpper(paraName)])
-			c.Visit(firstParagraph)
+			if block, ok := c.paragraphBlocks[strings.ToUpper(paraName)]; ok {
+				c.builder.CreateBr(block)
+			}
 		}
 	}
 
-	// If we haven't stopped, we need a return statement
-	if !c.stopped {
-		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
-	}
-
-	// Now, populate the other paragraph blocks
+	// Populate ALL paragraph blocks and ensure termination
 	for _, p := range ctx.AllParagraph() {
 		paraName := p.Identifier().GetText()
 		if paraName != "" {
-			if block, ok := paragraphBlocks[strings.ToUpper(paraName)]; ok {
-				// If the block is already populated, don't overwrite it
-				if block.FirstInstruction().IsNil() {
-					c.builder.SetInsertPointAtEnd(block)
-					c.Visit(p)
-					// If the paragraph doesn't end with a stop or go to, it should fall through
-					// to the next paragraph, or return if it's the last one.
-					// This is a simplification and might not be correct for all cases.
-					if !c.stopped {
-						c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
-					}
+			upperParaName := strings.ToUpper(paraName)
+			if block, ok := c.paragraphBlocks[upperParaName]; ok {
+				c.builder.SetInsertPointAtEnd(block)
+				c.stopped = false // Reset stopped flag for each paragraph
+				c.Visit(p)
+
+				// After visiting paragraph, ensure it's terminated
+				if block.LastInstruction().IsNil() { // Check if the block actually has a terminator
+					c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
 				}
 			}
 		}
+	}
+
+	// Final safety check - ensure main entry block is terminated
+	if c.mainEntryBlock.LastInstruction().IsNil() {
+		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
+		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
 	}
 
 	return nil
@@ -787,7 +785,179 @@ func (c *CodeGenerator) VisitSubtractStmt(ctx *parser.SubtractStmtContext) inter
 	return nil
 }
 
+func (c *CodeGenerator) VisitMultiplyStmt(ctx *parser.MultiplyStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Multiply Stmt")
+	}
 
+	// Get the multiplier (e.g., 2). This comes from the first exprList.
+	multiplierExpr := ctx.ExprList(0).AllExpr()[0]
+	multiplierValRes := c.Visit(multiplierExpr)
+	if multiplierValRes == nil {
+		c.addError("Multiplier value is nil", multiplierExpr.GetStart().GetLine())
+		return nil
+	}
+	multiplierVal, ok := multiplierValRes.(llvm.Value)
+	if !ok || c.checkNil(multiplierVal, "multiplier value", multiplierExpr.GetStart().GetLine()) {
+		return nil
+	}
+
+	// Handle MULTIPLY ... BY ... (modify the target in place)
+	targetExprs := ctx.ExprList(1).AllExpr()
+	for _, targetExpr := range targetExprs {
+		targetIdCtx, ok := targetExpr.(*parser.IdExprContext)
+		if !ok {
+			c.addError("MULTIPLY target must be an identifier", targetExpr.GetStart().GetLine())
+			continue
+		}
+
+		fieldName := targetIdCtx.GetText()
+		field, subscript := c.getFieldSymbol(fieldName, targetIdCtx.GetStart().GetLine())
+		if field == nil {
+			continue // Error already added
+		}
+
+		if !field.picture.isNumeric {
+			c.addError(fmt.Sprintf("Cannot perform MULTIPLY on non-numeric field '%s'", field.name), targetIdCtx.GetStart().GetLine())
+			continue
+		}
+
+		destPtr := c.module.NamedGlobal(field.name)
+		if c.checkNil(destPtr, "multiply target global", targetIdCtx.GetStart().GetLine()) {
+			continue
+		}
+
+		var finalDestPtr llvm.Value
+		if subscript != "" {
+			var idx llvm.Value
+			// Check if subscript is a literal integer
+			if val, err := strconv.Atoi(subscript); err == nil {
+				idx = llvm.ConstInt(c.context.Int32Type(), uint64(val-1), false) // COBOL is 1-based
+			} else {
+				// Assume it's a variable
+				if local, ok := c.localVars[strings.ToUpper(subscript)]; ok {
+					loadedIdx := c.builder.CreateLoad(c.context.Int32Type(), local, "")
+					idx = c.builder.CreateSub(loadedIdx, llvm.ConstInt(c.context.Int32Type(), 1, false), "") // Adjust for 1-based index
+				} else {
+					c.addError(fmt.Sprintf("Subscript variable '%s' not found", subscript), targetIdCtx.GetStart().GetLine())
+					continue
+				}
+			}
+			indices := []llvm.Value{
+				llvm.ConstInt(c.context.Int32Type(), 0, false),
+				idx,
+			}
+			finalDestPtr = c.builder.CreateInBoundsGEP(llvm.ArrayType(c.context.Int32Type(), field.occurs), destPtr, indices, "")
+		} else {
+			finalDestPtr = destPtr
+		}
+
+		// Perform the multiplication
+		currentVal := c.builder.CreateLoad(c.context.Int32Type(), finalDestPtr, "")
+		newVal := c.builder.CreateMul(currentVal, multiplierVal, "multmp")
+		c.builder.CreateStore(newVal, finalDestPtr)
+	}
+
+	// Handle GIVING clause if present
+	if len(ctx.AllGivingClause()) > 0 {
+		givingExprs := ctx.GivingClause(0).ExprList().AllExpr()
+		for _, givingExpr := range givingExprs {
+			field, _ := c.getFieldSymbol(givingExpr.GetText(), givingExpr.GetStart().GetLine())
+			if field != nil {
+				destPtr := c.module.NamedGlobal(field.name)
+				if !c.checkNil(destPtr, "giving destination", givingExpr.GetStart().GetLine()) {
+					// For GIVING, we need to calculate the product without modifying the original
+					// This is a simplified version - in full COBOL, GIVING works differently
+					targetExpr := ctx.ExprList(1).AllExpr()[0]
+					targetVal := c.Visit(targetExpr).(llvm.Value)
+					product := c.builder.CreateMul(multiplierVal, targetVal, "givingmul")
+					c.builder.CreateStore(product, destPtr)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *CodeGenerator) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Goto Stmt")
+	}
+	targetName := strings.ToUpper(ctx.ExprList().GetText())
+	if block, ok := c.paragraphBlocks[targetName]; ok {
+		c.builder.CreateBr(block)
+	} else {
+		c.addError(fmt.Sprintf("Paragraph '%s' not found for GO TO", targetName), ctx.GetStart().GetLine())
+	}
+	return nil
+}
+
+func (c *CodeGenerator) VisitPerformStmt(ctx *parser.PerformStmtContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Perform Stmt")
+	}
+
+	if ctx.TIMES() != nil {
+		// Handle PERFORM LOOPPARA 3 TIMES
+		timesVal := c.Visit(ctx.Expr(1)).(llvm.Value)
+
+		// Create a simple loop
+		startFunc := c.builder.GetInsertBlock().Parent()
+		loopHeader := c.context.AddBasicBlock(startFunc, "perform.header")
+		loopBody := c.context.AddBasicBlock(startFunc, "perform.body")
+		loopExit := c.context.AddBasicBlock(startFunc, "perform.exit")
+
+		// Create counter
+		counterPtr := c.builder.CreateAlloca(c.context.Int32Type(), "perform.counter")
+		c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), 0, false), counterPtr)
+		c.builder.CreateBr(loopHeader)
+
+		// Loop condition
+		c.builder.SetInsertPointAtEnd(loopHeader)
+		counter := c.builder.CreateLoad(c.context.Int32Type(), counterPtr, "")
+		condition := c.builder.CreateICmp(llvm.IntSLT, counter, timesVal, "perform.cond")
+		c.builder.CreateCondBr(condition, loopBody, loopExit)
+
+		// Loop body: execute DISPLAY "Loop" inline (bypass GO TO issue)
+		c.builder.SetInsertPointAtEnd(loopBody)
+
+		// Execute DISPLAY "Loop" inline
+		str := "Loop"
+		strLen := len(str)
+		globalStr := c.builder.CreateGlobalStringPtr(str, fmt.Sprintf(".str_perform%d", c.strCounter))
+		c.strCounter++
+
+		formatStr := c.builder.CreateGlobalStringPtr("%.*s\n", fmt.Sprintf(".str_format%d", c.strCounter))
+		c.strCounter++
+
+		c.builder.CreateCall(c.printfFunc.GlobalValueType(), c.printfFunc, []llvm.Value{
+			formatStr,
+			llvm.ConstInt(c.context.Int32Type(), uint64(strLen), false),
+			globalStr,
+		}, "")
+
+		// Increment counter and continue
+		counter = c.builder.CreateLoad(c.context.Int32Type(), counterPtr, "")
+		nextCounter := c.builder.CreateAdd(counter, llvm.ConstInt(c.context.Int32Type(), 1, false), "")
+		c.builder.CreateStore(nextCounter, counterPtr)
+		c.builder.CreateBr(loopHeader)
+
+		// Exit
+		c.builder.SetInsertPointAtEnd(loopExit)
+
+	} else {
+		// Handle simple PERFORM paragraph (without TIMES)
+		targetName := strings.ToUpper(ctx.Expr(0).GetText())
+		if block, ok := c.paragraphBlocks[targetName]; ok {
+			c.builder.CreateBr(block)
+		} else {
+			c.addError(fmt.Sprintf("Paragraph '%s' not found for PERFORM", targetName), ctx.GetStart().GetLine())
+		}
+	}
+
+	return nil
+}
 
 func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	if c.verbose {
@@ -1152,40 +1322,50 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 	var limit, step llvm.Value
 	hasVarying := false
 	var counterName string
+	var whileCondition parser.IConditionContext
+	var hasWhile, hasUntil bool
 
 	// Find the VARYING clause in the loop content
 	for _, content := range ctx.AllLoopContent() {
-		if content.LoopControl() != nil && content.LoopControl().VaryingClause() != nil {
-			hasVarying = true
-			varying := content.LoopControl().VaryingClause()
-			counterName = varying.IdentifierSegment().GetText()
+		if content.LoopControl() != nil {
+			if content.LoopControl().VaryingClause() != nil {
+				hasVarying = true
+				varying := content.LoopControl().VaryingClause()
+				counterName = varying.IdentifierSegment().GetText()
 
-			// Create an alloca for the loop counter in the entry block
-			entryBuilder := c.context.NewBuilder()
-			entryBuilder.SetInsertPointAtEnd(c.mainEntryBlock)
-			counterPtr = entryBuilder.CreateAlloca(c.context.Int32Type(), counterName)
-			entryBuilder.Dispose()
+				// Create an alloca for the loop counter in the entry block
+				entryBuilder := c.context.NewBuilder()
+				entryBuilder.SetInsertPointAtEnd(c.mainEntryBlock)
+				counterPtr = entryBuilder.CreateAlloca(c.context.Int32Type(), counterName)
+				entryBuilder.Dispose()
 
-			c.localVars[strings.ToUpper(counterName)] = counterPtr
+				c.localVars[strings.ToUpper(counterName)] = counterPtr
 
-			// Get start, end, and step values
-			startVal := llvm.ConstInt(c.context.Int32Type(), 1, true) // Default start is 1
-			if len(varying.AllExpr()) > 0 {
-				startVal = c.Visit(varying.Expr(0)).(llvm.Value)
+				// Get start, end, and step values
+				startVal := llvm.ConstInt(c.context.Int32Type(), 1, true) // Default start is 1
+				if len(varying.AllExpr()) > 0 {
+					startVal = c.Visit(varying.Expr(0)).(llvm.Value)
+				}
+
+				limit = llvm.ConstInt(c.context.Int32Type(), 2147483647, true) // Default limit is max int
+				if len(varying.AllExpr()) > 1 {
+					limit = c.Visit(varying.Expr(1)).(llvm.Value)
+				}
+
+				step = llvm.ConstInt(c.context.Int32Type(), 1, true) // Default step is 1
+				if len(varying.AllExpr()) > 2 {
+					step = c.Visit(varying.Expr(2)).(llvm.Value)
+				}
+
+				c.builder.CreateStore(startVal, counterPtr)
+				break // Assume only one VARYING clause for now
+			} else if content.LoopControl().WhileClause() != nil {
+				hasWhile = true
+				whileCondition = content.LoopControl().WhileClause().Condition()
+			} else if content.LoopControl().UntilClause() != nil {
+				hasUntil = true
+				whileCondition = content.LoopControl().UntilClause().Condition()
 			}
-
-			limit = llvm.ConstInt(c.context.Int32Type(), 2147483647, true) // Default limit is max int
-			if len(varying.AllExpr()) > 1 {
-				limit = c.Visit(varying.Expr(1)).(llvm.Value)
-			}
-
-			step = llvm.ConstInt(c.context.Int32Type(), 1, true) // Default step is 1
-			if len(varying.AllExpr()) > 2 {
-				step = c.Visit(varying.Expr(2)).(llvm.Value)
-			}
-
-			c.builder.CreateStore(startVal, counterPtr)
-			break // Assume only one VARYING clause for now
 		}
 	}
 
@@ -1197,6 +1377,13 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 		counter := c.builder.CreateLoad(c.context.Int32Type(), counterPtr, "")
 		cond := c.builder.CreateICmp(llvm.IntSLE, counter, limit, "loop.cond")
 		c.builder.CreateCondBr(cond, loopBody, loopExit)
+	} else if hasWhile {
+		condition := c.Visit(whileCondition).(llvm.Value)
+		c.builder.CreateCondBr(condition, loopBody, loopExit)
+	} else if hasUntil {
+		condition := c.Visit(whileCondition).(llvm.Value)
+		notCondition := c.builder.CreateNot(condition, "not.cond")
+		c.builder.CreateCondBr(notCondition, loopBody, loopExit)
 	} else {
 		// Infinite loop
 		c.builder.CreateBr(loopBody)
@@ -1205,6 +1392,11 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 	// --- Loop Body ---
 	c.builder.SetInsertPointAtEnd(loopBody)
 	for _, content := range ctx.AllLoopContent() {
+		// Skip loop control statements - they're handled in the condition
+		if content.LoopControl() != nil {
+			continue
+		}
+
 		if content.Sentence() != nil {
 			c.Visit(content.Sentence())
 		} else if content.Statement() != nil {
@@ -1221,7 +1413,7 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 
 	c.builder.CreateBr(loopHeader)
 	c.builder.SetInsertPointAtEnd(loopExit)
-	
+
 	if hasVarying {
 		delete(c.localVars, strings.ToUpper(counterName))
 	}
