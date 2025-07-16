@@ -1,0 +1,5 @@
+        IDENTIFICATION DIVISION.
+        PROGRAM-ID.  TEST-DISPLAY.
+        DATA DIVISION.
+        PROCEDURE DIVISION.
+            DISPLAY "Hello, world!".

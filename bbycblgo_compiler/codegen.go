@@ -347,10 +347,25 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		c.Visit(paragraph)
 	}
 
-	// Final safety check - ensure main entry block is terminated
-	if !c.stopped && c.mainEntryBlock.LastInstruction().IsNil() {
-		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
-		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+	// Final safety check - ensure the current block is terminated.
+	// This is crucial for cases where the last statement is a loop or if,
+	// which moves the builder to a new basic block.
+	currentBlock := c.builder.GetInsertBlock()
+	if !c.stopped && !currentBlock.IsNil() {
+		lastInstruction := currentBlock.LastInstruction()
+		if lastInstruction.IsNil() {
+			c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+		} else {
+			isTerminator := !lastInstruction.IsAReturnInst().IsNil() ||
+				!lastInstruction.IsABranchInst().IsNil() ||
+				!lastInstruction.IsASwitchInst().IsNil() ||
+				!lastInstruction.IsAInvokeInst().IsNil() ||
+				!lastInstruction.IsAUnreachableInst().IsNil()
+
+			if !isTerminator {
+				c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
+			}
+		}
 	}
 
 	return nil
@@ -378,30 +393,65 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		}
 		value, ok := val.(llvm.Value)
 		if !ok || c.checkNil(value, "display item", item.GetStart().GetLine()) {
-			continue
-		}
+            continue
+        }
 
-		// Get the actual picture for the field being displayed
-		var actualPicture *PictureType
-		if id, isId := item.Expr().(*parser.IdExprContext); isId {
-			field, _ := c.getFieldSymbol(id.GetText(), id.GetStart().GetLine())
-			if field != nil {
-				actualPicture = c.getActualPicture(field)
-				// If actualPicture is still nil, it means the LIKE reference couldn't be resolved
-				if actualPicture == nil {
-					c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), id.GetStart().GetLine())
-					continue
-				}
-			}
-		} else if lit, isLit := item.Expr().(*parser.LitExprContext); isLit {
-			// For literals, determine type from literal itself
-			litStr := lit.GetText()
-			if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
-				actualPicture = &PictureType{isNumeric: true}
-			} else if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
-				actualPicture = &PictureType{isAlphaNum: true, length: len(strings.Trim(litStr, "\""))}
-			}
-		}
+        if c.verbose {
+            if !value.IsNil() {
+                t := value.Type()
+                if !t.IsNil() {
+                    rawKind := t.TypeKind()
+                    fmt.Printf("Debug: Raw TypeKind: %d\n", rawKind)
+                    // No if ==19; print element always to see pointee
+                    elemT := t.ElementType()
+                    if !elemT.IsNil() {
+                        elemKind := elemT.TypeKind()
+                        fmt.Printf("Debug: Element Raw TypeKind: %d\n", elemKind)
+                        // If element is Array (expect ~11), print details
+                        if elemKind == 11 || elemKind == rawKind -1 {  // Guess shift
+                            fmt.Printf("Debug: Array Length: %d\n", elemT.ArrayLength())
+                            subElem := elemT.ElementType()
+                            if !subElem.IsNil() {
+                                subKind := subElem.TypeKind()
+                                fmt.Printf("Debug: Sub-Element Kind: %d, IsInteger: %t, Width: %d\n", subKind, subKind == 8 /* Integer guess */, subElem.IntTypeWidth())
+                            }
+                        } else if elemKind == 8 || elemKind == 1 {  // Integer or shifted
+                            fmt.Printf("Debug: Integer Width: %d (expect 8 for i8)\n", elemT.IntTypeWidth())
+                        }
+                    }
+                    // Print if constant (for GEP)
+                    if value.IsAConstantExpr().IsNil() == false {
+                        fmt.Println("Debug: Value is ConstantExpr (GEP for string)")
+                    }
+                } else {
+                    fmt.Println("Debug: Type is nil")
+                }
+            } else {
+                fmt.Println("Debug: Value is nil")
+            }
+        }
+
+        // Get the actual picture for the field being displayed
+        var actualPicture *PictureType
+        if id, isId := item.Expr().(*parser.IdExprContext); isId {
+            field, _ := c.getFieldSymbol(id.GetText(), id.GetStart().GetLine())
+            if field != nil {
+                actualPicture = c.getActualPicture(field)
+                // If actualPicture is still nil, it means the LIKE reference couldn't be resolved
+                if actualPicture == nil {
+                    c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), id.GetStart().GetLine())
+                    continue
+                }
+            }
+        } else if lit, isLit := item.Expr().(*parser.LitExprContext); isLit {
+            // For literals, determine type from literal itself
+            litStr := lit.GetText()
+            if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
+                actualPicture = &PictureType{isNumeric: true}
+            } else if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
+                actualPicture = &PictureType{isAlphaNum: true, length: len(strings.Trim(litStr, "\""))}
+            }
+        }
 
 		if actualPicture == nil {
 			c.addError(fmt.Sprintf("Could not determine type for display item: %s", item.Expr().GetText()), item.GetStart().GetLine())
@@ -1043,20 +1093,49 @@ func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	mergeBlock := c.context.AddBasicBlock(startFunc, "ifcont")
 	elseBlock := mergeBlock
 
-	if ctx.ELSE() != nil {
+	hasElse := ctx.ELSE() != nil
+	if hasElse {
 		elseBlock = c.context.AddBasicBlock(startFunc, "else")
 	}
 
 	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
 
+	// --- Then block ---
 	c.builder.SetInsertPointAtEnd(thenBlock)
-	for _, stmt := range ctx.AllStatement() {
+
+	// Correctly separate THEN and ELSE statements
+	var thenStmts, elseStmts []parser.IStatementContext
+	if hasElse {
+		elseTokenIndex := ctx.ELSE().GetSymbol().GetTokenIndex()
+		for _, stmt := range ctx.AllStatement() {
+			if stmt.GetStart().GetTokenIndex() < elseTokenIndex {
+				thenStmts = append(thenStmts, stmt)
+			} else {
+				elseStmts = append(elseStmts, stmt)
+			}
+		}
+	} else {
+		thenStmts = ctx.AllStatement()
+	}
+
+	for _, stmt := range thenStmts {
 		c.Visit(stmt)
 	}
-	c.builder.CreateBr(mergeBlock)
+	if c.builder.GetInsertBlock().LastInstruction().IsNil() ||
+		c.builder.GetInsertBlock().LastInstruction().IsAReturnInst().IsNil() {
+		c.builder.CreateBr(mergeBlock)
+	}
 
-	if ctx.ELSE() != nil {
+	// --- Else block ---
+	if hasElse {
 		c.builder.SetInsertPointAtEnd(elseBlock)
+		for _, stmt := range elseStmts {
+			c.Visit(stmt)
+		}
+		if c.builder.GetInsertBlock().LastInstruction().IsNil() ||
+			c.builder.GetInsertBlock().LastInstruction().IsAReturnInst().IsNil() {
+			c.builder.CreateBr(mergeBlock)
+		}
 	}
 
 	c.builder.SetInsertPointAtEnd(mergeBlock)
@@ -1434,6 +1513,19 @@ func (c *CodeGenerator) VisitLitExpr(ctx *parser.LitExprContext) interface{} {
 		c.strCounter++
 		ret := c.builder.CreateGlobalStringPtr(str, strName)
 		if c.verbose {
+			t := ret.Type()
+			rawKind := t.TypeKind()
+			fmt.Printf("Debug: String Literal Type Raw Kind: %d\n", rawKind)
+			elemT := t.ElementType()
+			if !elemT.IsNil() {
+				elemKind := elemT.TypeKind()
+				fmt.Printf("Debug: String Literal Element Raw Kind: %d\n", elemKind)
+				if elemKind == 11 { // Array guess
+					fmt.Printf("Debug: Array Length: %d, Sub-Element Kind: %d, Width: %d\n", elemT.ArrayLength(), elemT.ElementType().TypeKind(), elemT.ElementType().IntTypeWidth())
+				}
+			}
+		}
+		if c.verbose {
 			fmt.Printf("  Created global string for LitExpr %s\n", litStr)
 		}
 		return ret
@@ -1548,6 +1640,11 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 
 	c.builder.CreateBr(loopHeader)
 	c.builder.SetInsertPointAtEnd(loopExit)
+
+	// ---- ensure loop exit is terminated and control continues ----
+	after := c.context.AddBasicBlock(startFunc, "loop.after")
+	c.builder.CreateBr(after)
+	c.builder.SetInsertPointAtEnd(after)
 
 	if hasVarying {
 		delete(c.localVars, strings.ToUpper(counterName))
