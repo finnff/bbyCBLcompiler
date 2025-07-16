@@ -6,8 +6,7 @@ target triple = "x86_64-redhat-linux-gnu"
 @A = global i32 0, align 4
 @B = global i32 0, align 4
 @RES = global i32 0, align 4
-@.str_int = private unnamed_addr constant [3 x i8] c"%d\00", align 1
-@.str_newline0 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@.str_format0 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -23,8 +22,7 @@ entry:
   store i32 %subtmp, ptr @A, align 4
   %1 = load i32, ptr @RES, align 4
   %2 = load i32, ptr @RES, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %2)
-  %4 = call i32 (ptr, ...) @printf(ptr @.str_newline0)
+  %3 = call i32 (ptr, ...) @printf(ptr @.str_format0, i32 %2)
   ret i32 0
 }
 

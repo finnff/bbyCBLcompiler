@@ -20,14 +20,16 @@ define i32 @main() {
 entry:
   store i32 10, ptr @END, align 4
   %0 = load i32, ptr @END, align 4
-  %cmptmp = icmp eq i32 %0, 10
+  %1 = load i32, ptr @END, align 4
+  %cmptmp = icmp eq i32 %1, 10
   br i1 %cmptmp, label %then, label %ifcont
 
 then:                                             ; preds = %entry
-  %1 = call i32 (ptr, ...) @printf(ptr @.str_format_lit1, i32 4, ptr @.str_lit2)
-  %2 = load i32, ptr @END, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %2)
-  %4 = call i32 (ptr, ...) @printf(ptr @.str_newline3)
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_format_lit1, i32 4, ptr @.str_lit2)
+  %3 = load i32, ptr @END, align 4
+  %4 = load i32, ptr @END, align 4
+  %5 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %4)
+  %6 = call i32 (ptr, ...) @printf(ptr @.str_newline3)
   br label %ifcont
 
 ifcont:                                           ; preds = %then, %entry

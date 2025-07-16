@@ -4,9 +4,8 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:
 target triple = "x86_64-redhat-linux-gnu"
 
 @.str_lit0 = private unnamed_addr constant [14 x i8] c"Error handled\00", align 1
-@.str_format_lit1 = private unnamed_addr constant [5 x i8] c"%.*s\00", align 1
-@.str_lit2 = private unnamed_addr constant [14 x i8] c"Error handled\00", align 1
-@.str_newline3 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@.str_lit1 = private unnamed_addr constant [14 x i8] c"Error handled\00", align 1
+@.str_format2 = private unnamed_addr constant [6 x i8] c"%.*s\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -15,8 +14,7 @@ declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias
 
 define i32 @main() {
 entry:
-  %0 = call i32 (ptr, ...) @printf(ptr @.str_format_lit1, i32 13, ptr @.str_lit2)
-  %1 = call i32 (ptr, ...) @printf(ptr @.str_newline3)
+  %0 = call i32 (ptr, ...) @printf(ptr @.str_format2, i32 13, ptr @.str_lit1)
   ret i32 0
 }
 

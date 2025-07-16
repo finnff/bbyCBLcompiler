@@ -15,8 +15,9 @@ declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias
 define i32 @main() {
 entry:
   %0 = load i32, ptr @Y, align 4
-  %1 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %0)
-  %2 = call i32 (ptr, ...) @printf(ptr @.str_newline0)
+  %1 = load i32, ptr @Y, align 4
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %1)
+  %3 = call i32 (ptr, ...) @printf(ptr @.str_newline0)
   ret i32 0
 }
 

@@ -2,8 +2,8 @@
        PROGRAM-ID. LIKEMOVE.
        DATA DIVISION.
          01 Base PICTURE IS X(3).
-         01 Copy LIKE Base OCCURS 2 TIMES.
+         01 COPY LIKE Base OCCURS 2 TIMES.
        PROCEDURE DIVISION.
-           MOVE SPACES TO Copy(1).
-           MOVE "ABC" TO Copy(2).
-           DISPLAY Copy(1) Copy(2).
+           MOVE SPACES TO COPY(1).
+           MOVE "ABC" TO COPY(2).
+           DISPLAY COPY(1) COPY(2).

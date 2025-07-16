@@ -4,6 +4,7 @@ target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:
 target triple = "x86_64-redhat-linux-gnu"
 
 @COUNTER = global i32 0, align 4
+@.str_format0 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -15,14 +16,26 @@ entry:
   store i32 1, ptr @COUNTER, align 4
   br label %loop.header
 
+STOP:                                             ; preds = %loop.exit
+  ret i32 0
+
 loop.header:                                      ; preds = %loop.body, %entry
-  br label %loop.body
+  %0 = load i32, ptr @COUNTER, align 4
+  %1 = load i32, ptr @COUNTER, align 4
+  %cmptmp = icmp slt i32 %1, 5
+  br i1 %cmptmp, label %loop.body, label %loop.exit
 
 loop.body:                                        ; preds = %loop.header
+  %2 = load i32, ptr @COUNTER, align 4
+  %multmp = mul i32 %2, 2
+  store i32 %multmp, ptr @COUNTER, align 4
+  %3 = load i32, ptr @COUNTER, align 4
+  %4 = load i32, ptr @COUNTER, align 4
+  %5 = call i32 (ptr, ...) @printf(ptr @.str_format0, i32 %4)
   br label %loop.header
 
-loop.exit:                                        ; No predecessors!
-  ret i32 0
+loop.exit:                                        ; preds = %loop.header
+  br label %STOP
 }
 
 attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }

@@ -5,8 +5,10 @@ target triple = "x86_64-redhat-linux-gnu"
 
 @STUDENTNAME = global [2 x i8] zeroinitializer, align 1
 @STUDENT_AGE = global i32 0, align 4
-@.str0 = private unnamed_addr constant [3 x i8] c"AB\00", align 1
-@.str_int = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+@.str_lit0 = private unnamed_addr constant [3 x i8] c"AB\00", align 1
+@.str1 = private unnamed_addr constant [3 x i8] c"AB\00", align 1
+@.str_int = private unnamed_addr constant [3 x i8] c"%d\00", align 1
+@.str_newline2 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -15,9 +17,11 @@ declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias
 
 define i32 @main() {
 entry:
-  call void @llvm.memcpy.p0.p0.i64(ptr @STUDENTNAME, ptr @.str0, i64 2, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr @STUDENTNAME, ptr @.str1, i64 2, i1 false)
   %0 = load i32, ptr @STUDENT_AGE, align 4
-  %1 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %0)
+  %1 = load i32, ptr @STUDENT_AGE, align 4
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_int, i32 %1)
+  %3 = call i32 (ptr, ...) @printf(ptr @.str_newline2)
   ret i32 0
 }
 

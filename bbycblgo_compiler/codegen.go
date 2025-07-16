@@ -321,6 +321,16 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	c.mainEntryBlock = c.context.AddBasicBlock(mainFunc, "entry")
 	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 
+	// CRITICAL FIX: First pass - create all paragraph blocks before processing any statements
+	for _, paragraph := range ctx.AllParagraph() {
+		paragraphName := strings.ToUpper(paragraph.Identifier().GetText())
+		paragraphBlock := c.context.AddBasicBlock(mainFunc, paragraphName)
+		c.paragraphBlocks[paragraphName] = paragraphBlock
+		if c.verbose {
+			fmt.Printf("Pre-created paragraph block: %s\n", paragraphName)
+		}
+	}
+
 	// Visit sentences directly under Procedure Division (if any)
 	if c.verbose {
 		fmt.Printf("Main entry block before visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
@@ -332,9 +342,13 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		fmt.Printf("Main entry block after visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
 	}
 
+	// Now visit all paragraphs to generate their content
+	for _, paragraph := range ctx.AllParagraph() {
+		c.Visit(paragraph)
+	}
+
 	// Final safety check - ensure main entry block is terminated
-	// Always add a return statement unless execution was explicitly stopped
-	if !c.stopped {
+	if !c.stopped && c.mainEntryBlock.LastInstruction().IsNil() {
 		c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
 	}
@@ -397,7 +411,7 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		if actualPicture.isNumeric {
 			formatString += "%d"
 			// If it's a pointer to an integer (e.g., from IdExpr for a numeric field), load it
-			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntTypeKind {
+			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntegerTypeKind {
 				loadedVal := c.builder.CreateLoad(c.context.Int32Type(), value, "")
 				printfArgs = append(printfArgs, loadedVal)
 			} else {
@@ -406,7 +420,7 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		} else { // Alphanumeric
 			formatString += "%.*s"
 			// If value is already a pointer to i8 (e.g., from IdExpr for an alphanumeric field or global string literal)
-			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntTypeKind && value.Type().ElementType().IntTypeWidth() == 8 {
+			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntegerTypeKind && value.Type().ElementType().IntTypeWidth() == 8 {
 				// This is already a ptr to i8, use directly
 				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(actualPicture.length), false), value)
 			} else if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.ArrayTypeKind {

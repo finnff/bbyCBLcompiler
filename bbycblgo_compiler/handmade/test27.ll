@@ -6,6 +6,9 @@ target triple = "x86_64-redhat-linux-gnu"
 @NUM = global i32 0, align 4
 @QUOT = global i32 0, align 4
 @REM = global i32 0, align 4
+@.str_lit0 = private unnamed_addr constant [10 x i8] c"Remainder\00", align 1
+@.str_lit1 = private unnamed_addr constant [10 x i8] c"Remainder\00", align 1
+@.str_format2 = private unnamed_addr constant [8 x i8] c"%.*s%d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -15,6 +18,14 @@ declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias
 define i32 @main() {
 entry:
   store i32 10, ptr @NUM, align 4
+  %0 = load i32, ptr @NUM, align 4
+  %quottmp = sdiv i32 %0, 3
+  %remtmp = srem i32 %0, 3
+  store i32 %quottmp, ptr @QUOT, align 4
+  store i32 %remtmp, ptr @REM, align 4
+  %1 = load i32, ptr @REM, align 4
+  %2 = load i32, ptr @REM, align 4
+  %3 = call i32 (ptr, ...) @printf(ptr @.str_format2, i32 9, ptr @.str_lit1, i32 %2)
   ret i32 0
 }
 
