@@ -77,8 +77,11 @@ type bbyCBLVisitor interface {
 	// Visit a parse tree produced by bbyCBLParser#acceptStmt.
 	VisitAcceptStmt(ctx *AcceptStmtContext) interface{}
 
-	// Visit a parse tree produced by bbyCBLParser#addStmt.
-	VisitAddStmt(ctx *AddStmtContext) interface{}
+	// Visit a parse tree produced by bbyCBLParser#addToForm.
+	VisitAddToForm(ctx *AddToFormContext) interface{}
+
+	// Visit a parse tree produced by bbyCBLParser#addGivingForm.
+	VisitAddGivingForm(ctx *AddGivingFormContext) interface{}
 
 	// Visit a parse tree produced by bbyCBLParser#alterStmt.
 	VisitAlterStmt(ctx *AlterStmtContext) interface{}
@@ -116,8 +119,11 @@ type bbyCBLVisitor interface {
 	// Visit a parse tree produced by bbyCBLParser#withNoAdvancingClause.
 	VisitWithNoAdvancingClause(ctx *WithNoAdvancingClauseContext) interface{}
 
-	// Visit a parse tree produced by bbyCBLParser#divideStmt.
-	VisitDivideStmt(ctx *DivideStmtContext) interface{}
+	// Visit a parse tree produced by bbyCBLParser#divideIntoForm.
+	VisitDivideIntoForm(ctx *DivideIntoFormContext) interface{}
+
+	// Visit a parse tree produced by bbyCBLParser#divideByForm.
+	VisitDivideByForm(ctx *DivideByFormContext) interface{}
 
 	// Visit a parse tree produced by bbyCBLParser#evaluateStmt.
 	VisitEvaluateStmt(ctx *EvaluateStmtContext) interface{}

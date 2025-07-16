@@ -393,65 +393,65 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 		}
 		value, ok := val.(llvm.Value)
 		if !ok || c.checkNil(value, "display item", item.GetStart().GetLine()) {
-            continue
-        }
+			continue
+		}
 
-        if c.verbose {
-            if !value.IsNil() {
-                t := value.Type()
-                if !t.IsNil() {
-                    rawKind := t.TypeKind()
-                    fmt.Printf("Debug: Raw TypeKind: %d\n", rawKind)
-                    // No if ==19; print element always to see pointee
-                    elemT := t.ElementType()
-                    if !elemT.IsNil() {
-                        elemKind := elemT.TypeKind()
-                        fmt.Printf("Debug: Element Raw TypeKind: %d\n", elemKind)
-                        // If element is Array (expect ~11), print details
-                        if elemKind == 11 || elemKind == rawKind -1 {  // Guess shift
-                            fmt.Printf("Debug: Array Length: %d\n", elemT.ArrayLength())
-                            subElem := elemT.ElementType()
-                            if !subElem.IsNil() {
-                                subKind := subElem.TypeKind()
-                                fmt.Printf("Debug: Sub-Element Kind: %d, IsInteger: %t, Width: %d\n", subKind, subKind == 8 /* Integer guess */, subElem.IntTypeWidth())
-                            }
-                        } else if elemKind == 8 || elemKind == 1 {  // Integer or shifted
-                            fmt.Printf("Debug: Integer Width: %d (expect 8 for i8)\n", elemT.IntTypeWidth())
-                        }
-                    }
-                    // Print if constant (for GEP)
-                    if value.IsAConstantExpr().IsNil() == false {
-                        fmt.Println("Debug: Value is ConstantExpr (GEP for string)")
-                    }
-                } else {
-                    fmt.Println("Debug: Type is nil")
-                }
-            } else {
-                fmt.Println("Debug: Value is nil")
-            }
-        }
+		if c.verbose {
+			if !value.IsNil() {
+				t := value.Type()
+				if !t.IsNil() {
+					rawKind := t.TypeKind()
+					fmt.Printf("Debug: Raw TypeKind: %d\n", rawKind)
+					// No if ==19; print element always to see pointee
+					elemT := t.ElementType()
+					if !elemT.IsNil() {
+						elemKind := elemT.TypeKind()
+						fmt.Printf("Debug: Element Raw TypeKind: %d\n", elemKind)
+						// If element is Array (expect ~11), print details
+						if elemKind == 11 || elemKind == rawKind-1 { // Guess shift
+							fmt.Printf("Debug: Array Length: %d\n", elemT.ArrayLength())
+							subElem := elemT.ElementType()
+							if !subElem.IsNil() {
+								subKind := subElem.TypeKind()
+								fmt.Printf("Debug: Sub-Element Kind: %d, IsInteger: %t, Width: %d\n", subKind, subKind == 8 /* Integer guess */, subElem.IntTypeWidth())
+							}
+						} else if elemKind == 8 || elemKind == 1 { // Integer or shifted
+							fmt.Printf("Debug: Integer Width: %d (expect 8 for i8)\n", elemT.IntTypeWidth())
+						}
+					}
+					// Print if constant (for GEP)
+					if value.IsAConstantExpr().IsNil() == false {
+						fmt.Println("Debug: Value is ConstantExpr (GEP for string)")
+					}
+				} else {
+					fmt.Println("Debug: Type is nil")
+				}
+			} else {
+				fmt.Println("Debug: Value is nil")
+			}
+		}
 
-        // Get the actual picture for the field being displayed
-        var actualPicture *PictureType
-        if id, isId := item.Expr().(*parser.IdExprContext); isId {
-            field, _ := c.getFieldSymbol(id.GetText(), id.GetStart().GetLine())
-            if field != nil {
-                actualPicture = c.getActualPicture(field)
-                // If actualPicture is still nil, it means the LIKE reference couldn't be resolved
-                if actualPicture == nil {
-                    c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), id.GetStart().GetLine())
-                    continue
-                }
-            }
-        } else if lit, isLit := item.Expr().(*parser.LitExprContext); isLit {
-            // For literals, determine type from literal itself
-            litStr := lit.GetText()
-            if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
-                actualPicture = &PictureType{isNumeric: true}
-            } else if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
-                actualPicture = &PictureType{isAlphaNum: true, length: len(strings.Trim(litStr, "\""))}
-            }
-        }
+		// Get the actual picture for the field being displayed
+		var actualPicture *PictureType
+		if id, isId := item.Expr().(*parser.IdExprContext); isId {
+			field, _ := c.getFieldSymbol(id.GetText(), id.GetStart().GetLine())
+			if field != nil {
+				actualPicture = c.getActualPicture(field)
+				// If actualPicture is still nil, it means the LIKE reference couldn't be resolved
+				if actualPicture == nil {
+					c.addError(fmt.Sprintf("Field '%s' has no PICTURE clause or LIKE reference could not be resolved", field.name), id.GetStart().GetLine())
+					continue
+				}
+			}
+		} else if lit, isLit := item.Expr().(*parser.LitExprContext); isLit {
+			// For literals, determine type from literal itself
+			litStr := lit.GetText()
+			if _, err := strconv.ParseInt(litStr, 10, 32); err == nil {
+				actualPicture = &PictureType{isNumeric: true}
+			} else if strings.HasPrefix(litStr, "\"") && strings.HasSuffix(litStr, "\"") {
+				actualPicture = &PictureType{isAlphaNum: true, length: len(strings.Trim(litStr, "\""))}
+			}
+		}
 
 		if actualPicture == nil {
 			c.addError(fmt.Sprintf("Could not determine type for display item: %s", item.Expr().GetText()), item.GetStart().GetLine())
@@ -468,23 +468,21 @@ func (c *CodeGenerator) VisitDisplayStmt(ctx *parser.DisplayStmtContext) interfa
 				printfArgs = append(printfArgs, value)
 			}
 		} else { // Alphanumeric
-			formatString += "%.*s"
-			// If value is already a pointer to i8 (e.g., from IdExpr for an alphanumeric field or global string literal)
-			if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.IntegerTypeKind && value.Type().ElementType().IntTypeWidth() == 8 {
-				// This is already a ptr to i8, use directly
-				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(actualPicture.length), false), value)
-			} else if value.Type().TypeKind() == llvm.PointerTypeKind && value.Type().ElementType().TypeKind() == llvm.ArrayTypeKind {
-				// This is a pointer to an array (e.g., i8[N]*), need to GEP to i8*
-				arrayType := value.Type().ElementType()
-				indices := []llvm.Value{
-					llvm.ConstInt(c.context.Int32Type(), 0, false),
-					llvm.ConstInt(c.context.Int32Type(), 0, false),
-				}
-				gep := c.builder.CreateInBoundsGEP(arrayType, value, indices, "")
-				printfArgs = append(printfArgs, llvm.ConstInt(c.context.Int32Type(), uint64(actualPicture.length), false), gep)
-			} else {
-				// Fallback for other cases, might need more specific handling
-				c.addError(fmt.Sprintf("Unsupported type for alphanumeric display: %v", value.Type()), item.GetStart().GetLine())
+			// ---- Alphanumeric branch ----
+			formatString += "%s"
+			handled := false
+
+			if value.Type().TypeKind() == llvm.PointerTypeKind {
+				// whatever the element type is, make it an i8*
+				cstr := c.builder.CreateBitCast(
+					value, llvm.PointerType(c.context.Int8Type(), 0), "cstr")
+				printfArgs = append(printfArgs, cstr)
+				handled = true
+			}
+
+			if !handled {
+				c.addError("Unsupported type for alphanumeric DISPLAY",
+					item.GetStart().GetLine())
 				continue
 			}
 		}
@@ -1667,3 +1665,4 @@ func (c *CodeGenerator) VisitSignalStmt(ctx *parser.SignalStmtContext) interface
 	// Placeholder implementation
 	return nil
 }
+

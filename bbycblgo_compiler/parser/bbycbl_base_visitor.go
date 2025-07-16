@@ -100,7 +100,11 @@ func (v *BasebbyCBLVisitor) VisitAcceptStmt(ctx *AcceptStmtContext) interface{} 
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitAddStmt(ctx *AddStmtContext) interface{} {
+func (v *BasebbyCBLVisitor) VisitAddToForm(ctx *AddToFormContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BasebbyCBLVisitor) VisitAddGivingForm(ctx *AddGivingFormContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
@@ -152,7 +156,11 @@ func (v *BasebbyCBLVisitor) VisitWithNoAdvancingClause(ctx *WithNoAdvancingClaus
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitDivideStmt(ctx *DivideStmtContext) interface{} {
+func (v *BasebbyCBLVisitor) VisitDivideIntoForm(ctx *DivideIntoFormContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BasebbyCBLVisitor) VisitDivideByForm(ctx *DivideByFormContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

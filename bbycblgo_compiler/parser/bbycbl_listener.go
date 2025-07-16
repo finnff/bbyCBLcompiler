@@ -77,8 +77,11 @@ type bbyCBLListener interface {
 	// EnterAcceptStmt is called when entering the acceptStmt production.
 	EnterAcceptStmt(c *AcceptStmtContext)
 
-	// EnterAddStmt is called when entering the addStmt production.
-	EnterAddStmt(c *AddStmtContext)
+	// EnterAddToForm is called when entering the addToForm production.
+	EnterAddToForm(c *AddToFormContext)
+
+	// EnterAddGivingForm is called when entering the addGivingForm production.
+	EnterAddGivingForm(c *AddGivingFormContext)
 
 	// EnterAlterStmt is called when entering the alterStmt production.
 	EnterAlterStmt(c *AlterStmtContext)
@@ -116,8 +119,11 @@ type bbyCBLListener interface {
 	// EnterWithNoAdvancingClause is called when entering the withNoAdvancingClause production.
 	EnterWithNoAdvancingClause(c *WithNoAdvancingClauseContext)
 
-	// EnterDivideStmt is called when entering the divideStmt production.
-	EnterDivideStmt(c *DivideStmtContext)
+	// EnterDivideIntoForm is called when entering the divideIntoForm production.
+	EnterDivideIntoForm(c *DivideIntoFormContext)
+
+	// EnterDivideByForm is called when entering the divideByForm production.
+	EnterDivideByForm(c *DivideByFormContext)
 
 	// EnterEvaluateStmt is called when entering the evaluateStmt production.
 	EnterEvaluateStmt(c *EvaluateStmtContext)
@@ -302,8 +308,11 @@ type bbyCBLListener interface {
 	// ExitAcceptStmt is called when exiting the acceptStmt production.
 	ExitAcceptStmt(c *AcceptStmtContext)
 
-	// ExitAddStmt is called when exiting the addStmt production.
-	ExitAddStmt(c *AddStmtContext)
+	// ExitAddToForm is called when exiting the addToForm production.
+	ExitAddToForm(c *AddToFormContext)
+
+	// ExitAddGivingForm is called when exiting the addGivingForm production.
+	ExitAddGivingForm(c *AddGivingFormContext)
 
 	// ExitAlterStmt is called when exiting the alterStmt production.
 	ExitAlterStmt(c *AlterStmtContext)
@@ -341,8 +350,11 @@ type bbyCBLListener interface {
 	// ExitWithNoAdvancingClause is called when exiting the withNoAdvancingClause production.
 	ExitWithNoAdvancingClause(c *WithNoAdvancingClauseContext)
 
-	// ExitDivideStmt is called when exiting the divideStmt production.
-	ExitDivideStmt(c *DivideStmtContext)
+	// ExitDivideIntoForm is called when exiting the divideIntoForm production.
+	ExitDivideIntoForm(c *DivideIntoFormContext)
+
+	// ExitDivideByForm is called when exiting the divideByForm production.
+	ExitDivideByForm(c *DivideByFormContext)
 
 	// ExitEvaluateStmt is called when exiting the evaluateStmt production.
 	ExitEvaluateStmt(c *EvaluateStmtContext)
