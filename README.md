@@ -1,132 +1,84 @@
-## Mainframe Minds bbyCBL Antlr4 Parser 👶
+# bbycblgo- A babycbl Compiler/Parser in Go
 
-### Prereqisities
+## Background
 
-1. Extract test files:
-
-```bash
-cd tests
-tar -xvf recombined_formatted.tar.gz
-```
-
-2. Install requirements (`antlr4-tools` + `antlr4-python3-runtime`)
-
-```bash 
-pip3 install -r requirements.txt
-```
-
-3. Generate parser
-
-```bash
-antlr4 -Dlanguage=Python3 bbyCBL.g4 -o parser   
-```
+Started of as a fork/rewrite of our original python based project [https://github.com/SilasGitHub/software-evolution](https://github.com/SilasGitHub/software-evolution), but due to shitty performance when parsing a large amount of test cases in python (even after implementing multiprocessing, seemed to be core langauage limitations, with slow file IO and [Global Interpreter Lock (GIL)](https://realpython.com/python-gil/)), I thankfully decided to rewrite the Parser/Tester/compiler in Go. 
 
 
-
-### Usage
-
-
-1. Run Parser on test cases
-
-```bash
-python3 parserRunner.py
-```
-
-* *There are some params /debugging options (printing AST's, logging, No. iterations) that can be configured in* `parserRunner.py`
+<img width="510" height="463" alt="gorewrite" src="https://github.com/user-attachments/assets/97d556cd-068a-4ffe-8f71-509d6b471b45" />
 
 
-There are also some parameters that can be passed to the script:
-
-```bash
-python parserRunner.py              # Run all tests
-python parserRunner.py -FAILED      # Run only previously failed tests
-python parserRunner.py -CLEAR       # Clear the failed tests directory
-python parserRunner.py -WORKERS N   # Use N worker processes (default: all CPU cores)
-```
+## Librays/Tools/Bindings used:
+* ANTLR4 (Go runtime): Takes our bbyCBL.g4 grammar and generates a lexer/parser to process babyCOBOL code into an AST
+* [TinyGo LLVM Bindings](https://github.com/tinygo-org/go-llvm) (`tinygo.org/x/go-llvm`): Provides the Go language bindings to interact with the LLVM compiler infrastructure, enabling the generation of LLVM IR. Using these as the [official LLVM Go bindings](https://pkg.go.dev/github.com/axw/gollvm) haven't been updated in 10+ years. 
+* LLVM: Handles optimization and machine code generation from our IR output. This project is loosely based on [LLVM's Kaleidoscope tutorial](https://llvm.org/docs/tutorial/)
 
 
+## Features
 
-#### recombined_formatted Test Case coverage:
-[
-    <img
-        src="https://github.com/user-attachments/assets/897e8f60-5af5-4ef5-be55-d0d27c2b18b6"
-        width="40%"
-        title="recombined_formatted Test Case coverage"
-        alt="recombined_formatted Test Case coverage"
-    />
-](https://github.com/user-attachments/assets/897e8f60-5af5-4ef5-be55-d0d27c2b18b6)
+How It Works:
+
+1. **Feed it babyCOBOL**: Start with your .baby files 
+
+2. **Preprocessing**: Run through `preprocessCobolAdvanced` to handle babyCOBOL's syntax peculiarities
+
+3. **Lexing & Parsing**: 
+   * ANTLR4 lexer breaks everything into tokens
+   * Parser builds an AST from those tokens
+
+4. **Semantic Analysis (Two-Pass Process)**:
+   * **Pass 1**: `AlterCollector` visitor identifies ALTER statements and GO TO targets (to support babyCOBOL's dynamic jumps), builds symbol table
+   * **Pass 2**: Full semantic analysis - type checking, variable resolution, validation
+
+5. **Code Generation**: 
+   * `CodeGenerator` walks the validated AST
+   * Uses TinyGo LLVM bindings to translate AST nodes into LLVM IR (`.ll` files)
+   * Handles memory allocation, control flow, arithmetic operations
+
+6. **Output**: The LLVM IR is then invoked by llvm's CompileIRToExecutable which compiles, links it and optimizes it into a binary executable (host architecture dependent)
+
+## Usage and Pre-requisites
+
+* **Requirements:** Install `clang-devel` and `llvm-dev` packages to provide the required headers for TinyGo LLVM bindings.
+* The Makefile will automatically detect and select your installed LLVM version when running `make build`.
+* For detailed usage see [`./bbycblgo_compiler/README.md`](./bbycblgo_compiler/README.md)*
 
 
-> [!WARNING]
-> This current implementation of the parser is tuned almost exclusively for the recombined_formatted test cases. It's not syntactically pretty, particularly readable or adaptable for anything else, or even something that we want to continue working with while implementing the LLVM compiler backend. We're currently working on a more generalized version in the [dev branch](https://github.com/SilasGitHub/software-evolution/blob/dev/bbyCBL.g4) with takeaways gained from the lecture on 7-5, but this is still lacking some features as compared to this version for claiming XP.
-
-### Lexxer+Parser Progress:
+## Compatibility
+Tested on:
+- **Fedora** with Go 1.23.1, LLVM 20
+- **Ubuntu 24.04 LTS** with LLVM 18.1.3
 
 
 
-##### Basic Parsing Requirements ✅ 
+## Repo Overview
+- [`./bbycblgo_compiler/`](./bbycblgo_compiler/) - Main compiler code
+- [`./bbycblgo_compiler/handmade/`](./bbycblgo_compiler/handmade/) - Handwritten .baby test cases with corresponding .ll IR, x86_64 binaries, and .ast files
+- [`./bbycblgo_compiler/handmade/README.md`](./bbycblgo_compiler/handmade/README.md) - Checkpoint XPs and related test cases
+- [`./referenceDocs/`](./referenceDocs/) - Grep-able siterip of [https://slebok.github.io/baby/](https://slebok.github.io/baby/)
+- [`./helperscripts/`](./helperscripts/) - .ll disassembler script and LLVM-golang binding verification script
 
-| Requirement | Implemented | Location |
-|-------------|-------------|----------|
-| 1XP - Basic statements (ACCEPT, ALTER, GO TO, IF, PERFORM, SIGNAL) | ✅ | bbyCBL.g4: `acceptStmt`, `alterStmt`, `gotoStmt`, `ifStmt`, `performStmt`, `signalStmt` |
-| 2XP - COPY, DISPLAY, IDENTIFICATION DIVISION | ✅ | bbyCBL.g4: `identificationDivision`, `identificationClause`, `copyStmt`, `displayStmt` |
-| 2XP - Arithmetic operations (ADD, CALL, DIVIDE, MOVE, MULTIPLY, SUBTRACT) | ✅ | bbyCBL.g4: `addStmt`, `callStmt`, `divideStmt`, `moveStmt`, `multiplyStmt`, `subtractStmt` |
-| 3XP - DATA DIVISION (nested structures with OF) | ✅ | bbyCBL.g4: `dataDivision`, `dataEntry`, and `qualifiedId` for OF references |
-| 3XP - EVALUATE, LOOP (detachable clauses) | ✅ | bbyCBL.g4: `evaluateStmt`, `loopStmt` with interleaved `loopControl` and `statement` |
-| 4XP - Sentences, statements (NEXT SENTENCE, STOP) | ✅ | bbyCBL.g4: `sentence`, `nextSentenceStmt`, `stopStmt` |
 
-##### Position-based Parsing & Line Continuations (4XP) ✅ 
+## Screenshots
 
-| Requirement | Implemented | Location |
-|-------------|-------------|----------|
-| Ignore columns 1-6 (sequence number) | ✅ | preprocess_cobol(): Skips first 6 columns |
-| Process column 7 (line status indicator) | ✅ | preprocess_cobol(): Uses `indicator = line[6]` |
-| Handle space for normal line | ✅ | preprocess_cobol(): `if indicator == " "` |
-| Handle asterisk for comment line | ✅ | preprocess_cobol(): `if indicator == "*": continue` |
-| Handle hyphen for line continuation | ✅ | preprocess_cobol(): `if indicator == "-"` |
-| Raise error for other indicators | ✅ | preprocess_cobol(): `raise ValueError(f"Invalid line indicator...")` |
-| Parse Area A (columns 8-11) | ✅ | preprocess_cobol(): `area_a = line[7:11]` and `validate_area()` |
-| Parse Area B (columns 12-72) | ✅ | preprocess_cobol(): `area_b = line[11:72]` and `validate_area()` |
-| Ignore columns 73-80 | ✅ | preprocess_cobol(): Only uses columns up to 72 |
-| Process combined lines with continuations | ✅ | preprocess_cobol(): `current_line = current_line.rstrip() + glue + continuation` |
+#### Test Case Coverage 
 
-##### Case Insensitivity (5XP) ✅ 
+<img width="787" height="368" alt="image" src="https://github.com/user-attachments/assets/c28feff5-131b-4b31-b8a3-d34eed5b7126" />
 
-| Requirement | Implemented | Location |
-|-------------|-------------|----------|
-| Case-insensitive keywords and identifiers | ✅ | normalize_case(): Converts keywords to uppercase |
-| Case-sensitive string literals | ✅ | normalize_case(): `if in_string: out.append(ch)` |
-| Case-sensitive PICTURE clauses | ✅ | normalize_case(): `if in_picture: out.append(ch)` |
-| Case-sensitive comment lines | ✅ | preprocess_cobol(): Comment lines are skipped entirely |
-| Case-sensitive ID division values | ✅ | normalize_case(): `if in_id_value: out.append(ch)` |
-| Ambiguity resolution - uppercase keywords | ✅ | normalize_case(): `if lower in ALL_KEYWORDS: out.append(word.upper())` |
+#### compile --verbose test11.baby 
 
-##### Whitespace Insignificance (5XP) ⚠️
+<img width="775" height="998" alt="image" src="https://github.com/user-attachments/assets/ff8b15da-3655-4348-a71a-18ee12287384" />
 
-| Requirement | Implemented | Location |
-|-------------|-------------|----------|
-| Preserve whitespace in strings | ✅ | normalize_case(): Preserves all characters in strings |
-| Preserve whitespace in comments | ✅ | preprocess_cobol(): Comment lines are kept intact (though skipped) |
-| Preserve whitespace in ID division values | ✅ | normalize_case(): Preserves characters in ID values |
-| Ignore other whitespace | ⚠️ | Partial: ANTLR grammar has `WS: [ \t\r\n]+ -> skip;` but doesn't handle all cases |
-| Ambiguity resolution with whitespace | ⚠️ | Partial: join_without_space logic helps but doesn't fully implement the test cases |
+#### ast test32.baby
+
+<img width="641" height="977" alt="image" src="https://github.com/user-attachments/assets/b8f0ff2a-e0d6-41c3-a9a8-c464d11b30ef" />
+
+#### test --testdir handmade -pp , ast test02.baby, and compiled fizzbuzz binary output.
+
+<img width="838" height="1205" alt="image" src="https://github.com/user-attachments/assets/92a4f5d1-b06c-486b-890b-716ca40b04f6" />
 
 
 
 
-
-
-
-#### Example Parse Error debug info:
-
-
-[
-    <img
-        src="https://github.com/user-attachments/assets/19600a5c-9751-4663-b377-640dadfed993"
-        width="70%"
-        title="Example Parsing Errors have debugging"
-        alt="Example Parsing Errors have debugging"
-    />
-](https://github.com/user-attachments/assets/19600a5c-9751-4663-b377-640dadfed993)
 
 
