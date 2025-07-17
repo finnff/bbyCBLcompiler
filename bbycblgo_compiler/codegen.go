@@ -139,6 +139,18 @@ func (c *CodeGenerator) checkNil(val llvm.Value, msg string, line int) bool {
 	return false
 }
 
+func (c *CodeGenerator) blockHasTerminator(bb llvm.BasicBlock) bool {
+	li := bb.LastInstruction()
+	if li.IsNil() {                     // block is still open
+		return false
+	}
+	return !li.IsAReturnInst().IsNil()  ||
+		   !li.IsABranchInst().IsNil()  ||
+		   !li.IsASwitchInst().IsNil()  ||
+		   !li.IsAInvokeInst().IsNil()  ||
+		   !li.IsAUnreachableInst().IsNil()
+}
+
 func (c *CodeGenerator) getActualPicture(field *FieldSymbol) *PictureType {
 	if field == nil {
 		return nil
@@ -355,14 +367,20 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	zero := llvm.ConstInt(c.context.Int32Type(), 0, false)
 	for bb := mainFunc.FirstBasicBlock(); !bb.IsNil(); bb = llvm.NextBasicBlock(bb) {
 		lastInstruction := bb.LastInstruction()
-		if lastInstruction.IsNil() || (!lastInstruction.IsAReturnInst().IsNil() ||
-			!lastInstruction.IsABranchInst().IsNil() ||
-			!lastInstruction.IsASwitchInst().IsNil() ||
-			!lastInstruction.IsAInvokeInst().IsNil() ||
-			!lastInstruction.IsAUnreachableInst().IsNil()) {
-			// If the block is empty or the last instruction is not a terminator, add a return.
+		if lastInstruction.IsNil() { // If the block is empty, add a return
 			c.builder.SetInsertPointAtEnd(bb)
 			c.builder.CreateRet(zero)
+		} else {
+			isTerminator := !lastInstruction.IsAReturnInst().IsNil() ||
+				!lastInstruction.IsABranchInst().IsNil() ||
+				!lastInstruction.IsASwitchInst().IsNil() ||
+				!lastInstruction.IsAInvokeInst().IsNil() ||
+				!lastInstruction.IsAUnreachableInst().IsNil()
+
+			if !isTerminator { // If the last instruction is NOT a terminator, add a return
+				c.builder.SetInsertPointAtEnd(bb)
+				c.builder.CreateRet(zero)
+			}
 		}
 	}
 
@@ -1046,13 +1064,19 @@ func (c *CodeGenerator) VisitPerformStmt(ctx *parser.PerformStmtContext) interfa
 		// Exit
 		c.builder.SetInsertPointAtEnd(loopExit)
 
-	} else {
-		// Handle simple PERFORM paragraph (without TIMES)
+	} else {                     // simple PERFORM
 		targetName := strings.ToUpper(ctx.Expr(0).GetText())
 		if block, ok := c.paragraphBlocks[targetName]; ok {
 			c.builder.CreateBr(block)
+
+			// Start a fresh continuation block so that
+			// following COBOL statements land *after* the PERFORM.
+			cont := c.context.AddBasicBlock(
+				c.builder.GetInsertBlock().Parent(), "after.perform")
+			c.builder.SetInsertPointAtEnd(cont)
 		} else {
-			c.addError(fmt.Sprintf("Paragraph '%s' not found for PERFORM", targetName), ctx.GetStart().GetLine())
+			c.addError(fmt.Sprintf("Paragraph '%s' not found for PERFORM", targetName),
+					   ctx.GetStart().GetLine())
 		}
 	}
 
