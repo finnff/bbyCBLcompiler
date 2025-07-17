@@ -56,9 +56,6 @@ type bbyCBLVisitor interface {
 	// Visit a parse tree produced by bbyCBLParser#paragraph.
 	VisitParagraph(ctx *ParagraphContext) interface{}
 
-	// Visit a parse tree produced by bbyCBLParser#sentence.
-	VisitSentence(ctx *SentenceContext) interface{}
-
 	// Visit a parse tree produced by bbyCBLParser#statement.
 	VisitStatement(ctx *StatementContext) interface{}
 
@@ -134,11 +131,11 @@ type bbyCBLVisitor interface {
 	// Visit a parse tree produced by bbyCBLParser#gotoStmt.
 	VisitGotoStmt(ctx *GotoStmtContext) interface{}
 
-	// Visit a parse tree produced by bbyCBLParser#singleLineIf.
-	VisitSingleLineIf(ctx *SingleLineIfContext) interface{}
+	// Visit a parse tree produced by bbyCBLParser#ifStmt.
+	VisitIfStmt(ctx *IfStmtContext) interface{}
 
-	// Visit a parse tree produced by bbyCBLParser#multiLineIf.
-	VisitMultiLineIf(ctx *MultiLineIfContext) interface{}
+	// Visit a parse tree produced by bbyCBLParser#sentence.
+	VisitSentence(ctx *SentenceContext) interface{}
 
 	// Visit a parse tree produced by bbyCBLParser#loopStmt.
 	VisitLoopStmt(ctx *LoopStmtContext) interface{}

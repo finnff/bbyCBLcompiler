@@ -1,0 +1,133 @@
+Parsing 100doors.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+  [35mDataDivision[0m
+    DataEntry: I
+      LevelNumber: 01
+      Identifier (Single): I
+      PictureClause: 9(3)
+        PicturePattern: 9(3)
+    DataEntry: J
+      LevelNumber: 01
+      Identifier (Single): J
+      LikeClause
+        IdentifierSegment: I
+          SimpleId: I
+    DataEntry: DOOR
+      LevelNumber: 01
+      Identifier (Single): DOOR
+      PictureClause: 9
+        PicturePattern: 9
+      OccursClause
+    DataEntry: STOP
+      LevelNumber: 01
+      Identifier (Single): STOP
+      LikeClause
+        IdentifierSegment: DOOR
+          SimpleId: DOOR
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        MoveStatement
+          ExprList
+            Identifier: HIGH-VALUES
+            Identifier: TO
+            Identifier: STOP
+            Identifier: MOVE
+            Identifier: SPACES
+          ExprList
+            Identifier: DOOR
+    Sentence
+      Statement
+        LoopStatement
+          LoopContent
+            LoopControl
+              VaryingClause
+                IdentifierSegment: I
+                  SimpleId: I
+          LoopContent
+            LoopControl
+              UntilClause
+                Condition
+                  SimpleCondition
+                    Identifier: DOOR(I)
+                    Comparator: =
+                    Literal: 9
+          LoopContent
+            Statement
+              LoopStatement
+                LoopContent
+                  LoopControl
+                    VaryingClause
+                      IdentifierSegment: J
+                        SimpleId: J
+                      Identifier: I
+                      Literal: 100
+                      Identifier: I
+                LoopContent
+                  Statement
+                    SubtractStatement
+                      ExprList
+                        Identifier: DOOR(J)
+                      ExprList
+                        Literal: 1
+                      GivingClause
+                        ExprList
+                          Identifier: DOOR(J)
+    Sentence
+      Statement
+        LoopStatement
+          LoopContent
+            LoopControl
+              VaryingClause
+                IdentifierSegment: I
+                  SimpleId: I
+          LoopContent
+            LoopControl
+              UntilClause
+                Condition
+                  SimpleCondition
+                    Identifier: DOOR(I)
+                    Comparator: =
+                    Literal: 9
+          LoopContent
+            Statement
+              DisplayStatement
+                DisplayItem
+                  Literal: "Door"
+                DisplayItem
+                  Identifier: I
+                DisplayItem
+                  Literal: "is"
+                WithNoAdvancingClause
+          LoopContent
+            Statement
+              IfStatement
+                Condition
+                  SimpleCondition
+                    Identifier: DOOR(I)
+                    Comparator: =
+                    Literal: 1
+                Statement
+                  DisplayStatement
+                    DisplayItem
+                      Literal: "open"
+                    DisplayItem
+                      Identifier: ELSE
+          LoopContent
+            Sentence
+              Statement
+                DisplayStatement
+                  DisplayItem
+                    Literal: "closed"
+[36m--- Symbol Table ---[0m
+  I: &{name:I level:1 picture:0x&{39283329 %!x(bool=true) %!x(bool=false) %!x(bool=false) 3} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+  J: &{name:J level:1 picture:0x0 likeRef:I occurs:0 initialized:false parent:0x0 children:[]}
+  DOOR: &{name:DOOR level:1 picture:0x&{39 %!x(bool=true) %!x(bool=false) %!x(bool=false) 1} likeRef: occurs:100 initialized:false parent:0x0 children:[]}
+  STOP: &{name:STOP level:1 picture:0x0 likeRef:DOOR occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

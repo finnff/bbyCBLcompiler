@@ -1,5 +1,0 @@
-       IDENTIFICATION DIVISION.
-      #DATA DIVISION.
-      #This has a # in column 7 (invalid status indicator)
-       PROCEDURE DIVISION.
-           DISPLAY "FAIL".

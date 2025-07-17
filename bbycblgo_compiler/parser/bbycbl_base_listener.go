@@ -117,12 +117,6 @@ func (s *BasebbyCBLListener) EnterParagraph(ctx *ParagraphContext) {}
 // ExitParagraph is called when production paragraph is exited.
 func (s *BasebbyCBLListener) ExitParagraph(ctx *ParagraphContext) {}
 
-// EnterSentence is called when production sentence is entered.
-func (s *BasebbyCBLListener) EnterSentence(ctx *SentenceContext) {}
-
-// ExitSentence is called when production sentence is exited.
-func (s *BasebbyCBLListener) ExitSentence(ctx *SentenceContext) {}
-
 // EnterStatement is called when production statement is entered.
 func (s *BasebbyCBLListener) EnterStatement(ctx *StatementContext) {}
 
@@ -273,17 +267,17 @@ func (s *BasebbyCBLListener) EnterGotoStmt(ctx *GotoStmtContext) {}
 // ExitGotoStmt is called when production gotoStmt is exited.
 func (s *BasebbyCBLListener) ExitGotoStmt(ctx *GotoStmtContext) {}
 
-// EnterSingleLineIf is called when production singleLineIf is entered.
-func (s *BasebbyCBLListener) EnterSingleLineIf(ctx *SingleLineIfContext) {}
+// EnterIfStmt is called when production ifStmt is entered.
+func (s *BasebbyCBLListener) EnterIfStmt(ctx *IfStmtContext) {}
 
-// ExitSingleLineIf is called when production singleLineIf is exited.
-func (s *BasebbyCBLListener) ExitSingleLineIf(ctx *SingleLineIfContext) {}
+// ExitIfStmt is called when production ifStmt is exited.
+func (s *BasebbyCBLListener) ExitIfStmt(ctx *IfStmtContext) {}
 
-// EnterMultiLineIf is called when production multiLineIf is entered.
-func (s *BasebbyCBLListener) EnterMultiLineIf(ctx *MultiLineIfContext) {}
+// EnterSentence is called when production sentence is entered.
+func (s *BasebbyCBLListener) EnterSentence(ctx *SentenceContext) {}
 
-// ExitMultiLineIf is called when production multiLineIf is exited.
-func (s *BasebbyCBLListener) ExitMultiLineIf(ctx *MultiLineIfContext) {}
+// ExitSentence is called when production sentence is exited.
+func (s *BasebbyCBLListener) ExitSentence(ctx *SentenceContext) {}
 
 // EnterLoopStmt is called when production loopStmt is entered.
 func (s *BasebbyCBLListener) EnterLoopStmt(ctx *LoopStmtContext) {}

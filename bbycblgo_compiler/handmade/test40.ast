@@ -1,0 +1,48 @@
+Parsing test40.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: LOWADD
+  [35mDataDivision[0m
+    DataEntry: Num1
+      LevelNumber: 01
+      Identifier (Single): Num1
+      PictureClause: 99
+        PicturePattern: 99
+    DataEntry: Num2
+      LevelNumber: 01
+      Identifier (Single): Num2
+      PictureClause: 99
+        PicturePattern: 99
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        MoveStatement
+          ExprList
+            Identifier: LOW-VALUES
+          ExprList
+            Identifier: Num1
+            Identifier: Num2
+    Sentence
+      Statement
+        AddStatement (TO)
+          ExprList
+            Literal: 1
+          ExprList
+            Identifier: Num1
+            Identifier: Num2
+    Sentence
+      Statement
+        DisplayStatement
+          DisplayItem
+            Identifier: Num1
+          DisplayItem
+            Identifier: Num2
+[36m--- Symbol Table ---[0m
+  NUM1: &{name:NUM1 level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+  NUM2: &{name:NUM2 level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

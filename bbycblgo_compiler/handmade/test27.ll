@@ -7,8 +7,7 @@ target triple = "x86_64-redhat-linux-gnu"
 @QUOT = global i32 0, align 4
 @REM = global i32 0, align 4
 @.str_lit0 = private unnamed_addr constant [10 x i8] c"Remainder\00", align 1
-@.str_lit1 = private unnamed_addr constant [10 x i8] c"Remainder\00", align 1
-@.str_format2 = private unnamed_addr constant [8 x i8] c"%.*s%d\0A\00", align 1
+@.str_format1 = private unnamed_addr constant [6 x i8] c"%s%d\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -24,8 +23,7 @@ entry:
   store i32 %quottmp, ptr @QUOT, align 4
   store i32 %remtmp, ptr @REM, align 4
   %1 = load i32, ptr @REM, align 4
-  %2 = load i32, ptr @REM, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @.str_format2, i32 9, ptr @.str_lit1, i32 %2)
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_format1, ptr @.str_lit0, i32 %1)
   ret i32 0
 }
 

@@ -5,6 +5,8 @@ target triple = "x86_64-redhat-linux-gnu"
 
 @X = global i32 0, align 4
 @Y = global i32 0, align 4
+@.str_lit0 = private unnamed_addr constant [9 x i8] c"No match\00", align 1
+@.str_format1 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -15,6 +17,11 @@ define i32 @main() {
 entry:
   store i32 5, ptr @X, align 4
   store i32 10, ptr @Y, align 4
+  %0 = load i32, ptr @X, align 4
+  %1 = call i32 (ptr, ...) @printf(ptr @.str_format1, ptr @.str_lit0)
+  br label %eval.merge
+
+eval.merge:                                       ; preds = %entry
   ret i32 0
 }
 

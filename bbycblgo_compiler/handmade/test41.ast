@@ -1,0 +1,52 @@
+Parsing test41.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: ARRAYLOOP
+  [35mDataDivision[0m
+    DataEntry: Arr
+      LevelNumber: 01
+      Identifier (Single): Arr
+      PictureClause: 99
+        PicturePattern: 99
+      OccursClause
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        MoveStatement
+          ExprList
+            Literal: 10
+          ExprList
+            Identifier: Arr(1)
+            Identifier: Arr(2)
+            Identifier: Arr(3)
+    Sentence
+      Statement
+        LoopStatement
+          LoopContent
+            LoopControl
+              VaryingClause
+                IdentifierSegment: I
+                  SimpleId: I
+                Literal: 1
+                Literal: 3
+          LoopContent
+            Sentence
+              Statement
+                SubtractStatement
+                  ExprList
+                    Literal: 1
+                  ExprList
+                    Identifier: Arr(I)
+          LoopContent
+            Statement
+              DisplayStatement
+                DisplayItem
+                  Identifier: Arr(I)
+[36m--- Symbol Table ---[0m
+  ARR: &{name:ARR level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:3 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

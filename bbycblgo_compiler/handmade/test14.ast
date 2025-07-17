@@ -1,0 +1,22 @@
+Parsing test14.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+  [35mDataDivision[0m
+    DataEntry: Y
+      LevelNumber: 01
+      Identifier (Single): Y
+      PictureClause: 99
+        PicturePattern: 99
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        DisplayStatement
+          DisplayItem
+            Identifier: Y
+[36m--- Symbol Table ---[0m
+  Y: &{name:Y level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

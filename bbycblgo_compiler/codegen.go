@@ -97,13 +97,7 @@ func (a *AlterCollector) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} 
 //	func (a *AlterCollector) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 //		return a.VisitChildren(ctx)
 //	}
-func (a *AlterCollector) VisitSingleLineIf(ctx *parser.SingleLineIfContext) interface{} {
-	return a.VisitChildren(ctx)
-}
 
-func (a *AlterCollector) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interface{} {
-	return a.VisitChildren(ctx)
-}
 
 func (a *AlterCollector) VisitLoopContent(ctx *parser.LoopContentContext) interface{} {
 	return a.VisitChildren(ctx)
@@ -378,7 +372,93 @@ func (c *CodeGenerator) VisitSentence(ctx *parser.SentenceContext) interface{} {
 	if c.verbose {
 		fmt.Println("Visiting Sentence")
 	}
-	return c.VisitChildren(ctx)
+
+	stmts := ctx.AllStatement()
+
+	// if the very first statement is an IF, let it consume everything else
+	if len(stmts)>0 {
+		if ifCtx := stmts[0].IfStmt(); ifCtx!=nil {
+			return c.handleSentenceScopedIf(ifCtx, stmts[1:])
+		}
+	}
+	// otherwise just visit each statement in turn
+	for _, stmt := range stmts {
+		c.Visit(stmt)
+	}
+
+	return nil
+}
+
+func (c *CodeGenerator) handleSentenceScopedIf(ifCtx parser.IIfStmtContext, remainingStmts []parser.IStatementContext) interface{} {
+	if c.verbose {
+		fmt.Println("Handling Sentence-Scoped IF")
+	}
+
+	conditionVal := c.Visit(ifCtx.Condition())
+	if conditionVal == nil {
+		c.addError("condition expression is nil in sentence-scoped IF", ifCtx.GetStart().GetLine())
+		return nil
+	}
+	condition, ok := conditionVal.(llvm.Value)
+	if !ok || condition.IsNil() {
+		c.addError("condition is not a valid llvm value in sentence-scoped IF", ifCtx.GetStart().GetLine())
+		return nil
+	}
+
+	startFunc := c.builder.GetInsertBlock().Parent()
+	thenBlock := c.context.AddBasicBlock(startFunc, "then.sentence.scoped")
+	mergeBlock := c.context.AddBasicBlock(startFunc, "ifcont.sentence.scoped")
+	elseBlock := mergeBlock
+
+	hasElse := ifCtx.ELSE() != nil
+	if hasElse {
+		elseBlock = c.context.AddBasicBlock(startFunc, "else.sentence.scoped")
+	}
+
+	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
+
+	// extract THEN vs ELSE from the IF‑child statements
+	var thenStmts, elseStmts []parser.IStatementContext
+	if elseTok := ifCtx.ELSE(); elseTok != nil {
+		cut := elseTok.GetSymbol().GetTokenIndex()
+		for _, s := range ifCtx.AllStatement() {
+			if s.GetStart().GetTokenIndex() < cut {
+				thenStmts = append(thenStmts, s)
+			} else {
+				elseStmts = append(elseStmts, s)
+			}
+		}
+	} else {
+		thenStmts = ifCtx.AllStatement()
+	}
+
+	// --- THEN block ---
+	c.builder.SetInsertPointAtEnd(thenBlock)
+	// first, execute the IF’s own THEN‑stmts...
+	for _, s := range thenStmts {
+		c.Visit(s)
+	}
+	// ...then everything else in the sentence
+	for _, s := range remainingStmts {
+		c.Visit(s)
+	}
+	if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
+		c.builder.CreateBr(mergeBlock)
+	}
+
+	// --- ELSE block (if any) ---
+	if elseTok := ifCtx.ELSE(); elseTok != nil {
+		c.builder.SetInsertPointAtEnd(elseBlock)
+		for _, s := range elseStmts {
+			c.Visit(s)
+		}
+		if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
+			c.builder.CreateBr(mergeBlock)
+		}
+	}
+
+	c.builder.SetInsertPointAtEnd(mergeBlock)
+	return nil
 }
 
 func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) interface{} {
@@ -1306,9 +1386,9 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	return nil
 }
 
-func (c *CodeGenerator) VisitSingleLineIf(ctx *parser.SingleLineIfContext) interface{} {
+func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	if c.verbose {
-		fmt.Println("Visiting Single Line If Stmt")
+		fmt.Println("Visiting If Stmt")
 	}
 
 	conditionVal := c.Visit(ctx.Condition())
@@ -1334,58 +1414,9 @@ func (c *CodeGenerator) VisitSingleLineIf(ctx *parser.SingleLineIfContext) inter
 
 	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
 
-	// --- Then block (exactly one statement) ---
-	c.builder.SetInsertPointAtEnd(thenBlock)
-	c.Visit(ctx.Statement(0)) // First statement after THEN
-	if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
-		c.builder.CreateBr(mergeBlock)
-	}
-
-	// --- Else block (exactly one statement if present) ---
-	if hasElse {
-		c.builder.SetInsertPointAtEnd(elseBlock)
-		c.Visit(ctx.Statement(1)) // Statement after ELSE
-		if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
-			c.builder.CreateBr(mergeBlock)
-		}
-	}
-
-	c.builder.SetInsertPointAtEnd(mergeBlock)
-	return nil
-}
-
-func (c *CodeGenerator) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interface{} {
-	if c.verbose {
-		fmt.Println("Visiting Multi Line If Stmt")
-	}
-
-	conditionVal := c.Visit(ctx.Condition())
-	if conditionVal == nil {
-		c.addError("condition expression is nil", ctx.GetStart().GetLine())
-		return nil
-	}
-	condition, ok := conditionVal.(llvm.Value)
-	if !ok || condition.IsNil() {
-		c.addError("condition is not a valid llvm value", ctx.GetStart().GetLine())
-		return nil
-	}
-
-	startFunc := c.builder.GetInsertBlock().Parent()
-	thenBlock := c.context.AddBasicBlock(startFunc, "then")
-	mergeBlock := c.context.AddBasicBlock(startFunc, "ifcont")
-	elseBlock := mergeBlock
-
-	hasElse := ctx.ELSE() != nil
-	if hasElse {
-		elseBlock = c.context.AddBasicBlock(startFunc, "else")
-	}
-
-	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
-
-	// --- Then block (multiple statements) ---
+	// --- Then block ---
 	c.builder.SetInsertPointAtEnd(thenBlock)
 
-	// For multi-line IF, we need to separate THEN and ELSE statements
 	var thenStmts, elseStmts []parser.IStatementContext
 	if hasElse {
 		elseTokenIndex := ctx.ELSE().GetSymbol().GetTokenIndex()
@@ -1407,7 +1438,7 @@ func (c *CodeGenerator) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interfa
 		c.builder.CreateBr(mergeBlock)
 	}
 
-	// --- Else block (multiple statements if present) ---
+	// --- Else block ---
 	if hasElse {
 		c.builder.SetInsertPointAtEnd(elseBlock)
 		for _, stmt := range elseStmts {
@@ -1840,9 +1871,18 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 				counterName = varying.IdentifierSegment().GetText()
 
 				// Create an alloca for the loop counter in the entry block
+				entry := c.mainEntryBlock
 				entryBuilder := c.context.NewBuilder()
-				entryBuilder.SetInsertPointAtEnd(c.mainEntryBlock)
-				counterPtr = entryBuilder.CreateAlloca(c.context.Int32Type(), counterName)
+
+				if term := entry.LastInstruction(); term.IsNil() {
+					entryBuilder.SetInsertPointAtEnd(entry)          // no terminator yet
+				} else {
+					entryBuilder.SetInsertPointBefore(term)          // insert *before* it
+				}
+
+				counterPtr = entryBuilder.CreateAlloca(
+					c.context.Int32Type(), counterName)
+
 				entryBuilder.Dispose()
 
 				c.localVars[strings.ToUpper(counterName)] = counterPtr
@@ -1921,18 +1961,32 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 
 	// --- Loop Body ---
 	c.builder.SetInsertPointAtEnd(loopBody)
+
+	// Collect all the non-control statements in a flat slice
+	var stmts []parser.IStatementContext
 	for _, content := range ctx.AllLoopContent() {
-		// Skip loop control statements - they're handled in the condition
 		if content.LoopControl() != nil {
 			continue
 		}
-
-		if content.Sentence() != nil {
-			c.Visit(content.Sentence())
-		} else if content.Statement() != nil {
-			c.Visit(content.Statement())
+		if content.Statement() != nil {
+			stmts = append(stmts, content.Statement())
 		}
 	}
+
+	// If the very first statement is an IF without explicit END, let it consume the rest
+	if len(stmts) > 0 {
+		if ifCtx := stmts[0].IfStmt(); ifCtx != nil && ifCtx.END_IF() == nil && ifCtx.END() == nil {
+			c.handleSentenceScopedIf(ifCtx, stmts[1:])
+			// we're done with this loop body
+			goto afterLoopBody
+		}
+	}
+	// Otherwise just visit them one by one
+	for _, stmt := range stmts {
+		c.Visit(stmt)
+	}
+
+afterLoopBody:
 
 	// --- Loop Update ---
 	if hasVarying {

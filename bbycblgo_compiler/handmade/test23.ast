@@ -1,0 +1,22 @@
+Parsing test23.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: CONTINUATION
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        DisplayStatement
+          DisplayItem
+            Literal: "Hello"
+          WithNoAdvancingClause
+          DisplayItem
+            Literal: " World"
+          DisplayItem
+            Literal: "."
+[36m--- Symbol Table ---[0m
+
+[36m--------------------[0m
+

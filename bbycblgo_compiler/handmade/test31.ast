@@ -1,0 +1,33 @@
+Parsing test31.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: ACCEPTDISPLAY
+  [35mDataDivision[0m
+    DataEntry: InputVal
+      LevelNumber: 01
+      Identifier (Single): InputVal
+      PictureClause: 99
+        PicturePattern: 99
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        AcceptStatement
+          ExprList
+            Identifier: InputVal
+    Sentence
+      Statement
+        DisplayStatement
+          DisplayItem
+            Identifier: InputVal
+            DelimiterSpec
+                DELIMITED BY: DELIMITED BY
+              ValueSpec
+                Identifier: SPACE
+[36m--- Symbol Table ---[0m
+  INPUTVAL: &{name:INPUTVAL level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

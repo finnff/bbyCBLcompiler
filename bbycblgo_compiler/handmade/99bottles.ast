@@ -1,0 +1,130 @@
+Parsing 99bottles.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+  [35mDataDivision[0m
+    DataEntry: DATA
+      LevelNumber: 01
+      Identifier (Single): DATA
+      PictureClause: 999
+        PicturePattern: 999
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        LoopStatement
+          LoopContent
+            LoopControl
+              VaryingClause
+                IdentifierSegment: DATA
+                  SimpleId: DATA
+                Literal: 99
+                Literal: 0
+          LoopContent
+            Statement
+              PerformStatement
+                Identifier: COUNT-BOTTLES
+                Identifier: END
+          LoopContent
+            Statement
+              DisplayStatement
+                DisplayItem
+                  Identifier: DATA
+                DisplayItem
+                  Literal: "bottles of beer"
+                DisplayItem
+                  Identifier: DISPLAY
+                DisplayItem
+                  Literal: "Take one down, pass it around"
+          LoopContent
+            Statement
+              SubtractStatement
+                ExprList
+                  Literal: 1
+                ExprList
+                  Identifier: DATA
+          LoopContent
+            Statement
+              IfStatement
+                Condition
+                  SimpleCondition
+                    Identifier: DATA
+                    Comparator: =
+                    Literal: 1
+                Statement
+                  AlterStatement
+                    Identifier (Single): COUNT-BOTTLES
+                    Identifier (Single): SINGLE-BOTTLE
+          LoopContent
+            Statement
+              PerformStatement
+                Identifier: COUNT-BOTTLES
+                Identifier: END
+          LoopContent
+            Statement
+              DisplayStatement
+                DisplayItem
+                  Literal: ""
+    Paragraph: NO-BOTTLES-LEFT
+      Identifier (Single): NO-BOTTLES-LEFT
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "No bottles of beer on the wall"
+            DisplayItem
+              Identifier: DISPLAY
+            DisplayItem
+              Literal: ""
+            DisplayItem
+              Identifier: DISPLAY
+            DisplayItem
+              Literal: "Go to the store and buy some more"
+            DisplayItem
+              Identifier: DISPLAY
+            DisplayItem
+              Literal: "99 bottles of beer on the wall"
+      Sentence
+        Statement
+          StopStatement
+    Paragraph: COUNT-BOTTLES
+      Identifier (Single): COUNT-BOTTLES
+      Sentence
+        Statement
+          GotoStatement
+            ExprList
+              Identifier: MANY-BOTTLES
+    Paragraph: SINGLE-BOTTLE
+      Identifier (Single): SINGLE-BOTTLE
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Identifier: DATA
+            DisplayItem
+              Literal: "bottle of beer on the wall"
+      Sentence
+        Statement
+          GotoStatement
+            ExprList
+              Identifier: NO-BOTTLES-LEFT
+    Paragraph: MANY-BOTTLES
+      Identifier (Single): MANY-BOTTLES
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Identifier: DATA
+            DisplayItem
+              Literal: "bottles of beer on the wall"
+    Paragraph: END
+      Identifier (Single): END
+      Sentence
+        Statement
+          NextSentenceStmt
+[36m--- Symbol Table ---[0m
+  DATA: &{name:DATA level:1 picture:0x&{393939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 3} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

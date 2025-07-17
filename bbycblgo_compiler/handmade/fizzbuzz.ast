@@ -1,0 +1,118 @@
+Parsing fizzbuzz.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: FIZZBUZZ
+  [35mDataDivision[0m
+    DataEntry: INT
+      LevelNumber: 01
+      Identifier (Single): INT
+      PictureClause: 9(3)
+        PicturePattern: 9(3)
+    DataEntry: REM
+      LevelNumber: 01
+      Identifier (Single): REM
+      LikeClause
+        IdentifierSegment: INT
+          SimpleId: INT
+    DataEntry: TMP
+      LevelNumber: 01
+      Identifier (Single): TMP
+      LikeClause
+        IdentifierSegment: INT
+          SimpleId: INT
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        LoopStatement
+          LoopContent
+            LoopControl
+              VaryingClause
+                IdentifierSegment: INT
+                  SimpleId: INT
+                Literal: 100
+          LoopContent
+            Statement
+              DivideStatement (INTO)
+                ExprList
+                  Literal: 3
+                ExprList
+                  Identifier: INT
+                GivingClause
+                  ExprList
+                    Identifier: TMP
+                ExprList
+                  Identifier: REM
+          LoopContent
+            Statement
+              IfStatement
+                Condition
+                  SimpleCondition
+                    Identifier: REM
+                    Comparator: =
+                    Literal: 0
+                Statement
+                  DisplayStatement
+                    DisplayItem
+                      Literal: "Fizz"
+                    WithNoAdvancingClause
+                Statement
+                  DivideStatement (INTO)
+                    ExprList
+                      Literal: 5
+                    ExprList
+                      Identifier: INT
+                    GivingClause
+                      ExprList
+                        Identifier: TMP
+                    ExprList
+                      Identifier: REM
+                Statement
+                  IfStatement
+                    Condition
+                      SimpleCondition
+                        Identifier: REM
+                        Comparator: =
+                        Literal: 0
+                    Statement
+                      DisplayStatement
+                        DisplayItem
+                          Literal: "Buzz"
+                        WithNoAdvancingClause
+                    Statement
+                      DivideStatement (INTO)
+                        ExprList
+                          Literal: 15
+                        ExprList
+                          Identifier: INT
+                        GivingClause
+                          ExprList
+                            Identifier: TMP
+                        ExprList
+                          Identifier: REM
+                    Statement
+                      IfStatement
+                        Condition
+                          SimpleCondition
+                            Identifier: REM
+                            Comparator: =
+                            Literal: 0
+                        Statement
+                          DisplayStatement
+                            DisplayItem
+                              Literal: ""
+                            DisplayItem
+                              Identifier: ELSE
+                            DisplayItem
+                              Identifier: DISPLAY
+                            DisplayItem
+                              Identifier: INT
+[36m--- Symbol Table ---[0m
+  INT: &{name:INT level:1 picture:0x&{39283329 %!x(bool=true) %!x(bool=false) %!x(bool=false) 3} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+  REM: &{name:REM level:1 picture:0x0 likeRef:INT occurs:0 initialized:false parent:0x0 children:[]}
+  TMP: &{name:TMP level:1 picture:0x0 likeRef:INT occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

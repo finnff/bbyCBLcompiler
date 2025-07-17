@@ -56,9 +56,6 @@ type bbyCBLListener interface {
 	// EnterParagraph is called when entering the paragraph production.
 	EnterParagraph(c *ParagraphContext)
 
-	// EnterSentence is called when entering the sentence production.
-	EnterSentence(c *SentenceContext)
-
 	// EnterStatement is called when entering the statement production.
 	EnterStatement(c *StatementContext)
 
@@ -134,11 +131,11 @@ type bbyCBLListener interface {
 	// EnterGotoStmt is called when entering the gotoStmt production.
 	EnterGotoStmt(c *GotoStmtContext)
 
-	// EnterSingleLineIf is called when entering the singleLineIf production.
-	EnterSingleLineIf(c *SingleLineIfContext)
+	// EnterIfStmt is called when entering the ifStmt production.
+	EnterIfStmt(c *IfStmtContext)
 
-	// EnterMultiLineIf is called when entering the multiLineIf production.
-	EnterMultiLineIf(c *MultiLineIfContext)
+	// EnterSentence is called when entering the sentence production.
+	EnterSentence(c *SentenceContext)
 
 	// EnterLoopStmt is called when entering the loopStmt production.
 	EnterLoopStmt(c *LoopStmtContext)
@@ -290,9 +287,6 @@ type bbyCBLListener interface {
 	// ExitParagraph is called when exiting the paragraph production.
 	ExitParagraph(c *ParagraphContext)
 
-	// ExitSentence is called when exiting the sentence production.
-	ExitSentence(c *SentenceContext)
-
 	// ExitStatement is called when exiting the statement production.
 	ExitStatement(c *StatementContext)
 
@@ -368,11 +362,11 @@ type bbyCBLListener interface {
 	// ExitGotoStmt is called when exiting the gotoStmt production.
 	ExitGotoStmt(c *GotoStmtContext)
 
-	// ExitSingleLineIf is called when exiting the singleLineIf production.
-	ExitSingleLineIf(c *SingleLineIfContext)
+	// ExitIfStmt is called when exiting the ifStmt production.
+	ExitIfStmt(c *IfStmtContext)
 
-	// ExitMultiLineIf is called when exiting the multiLineIf production.
-	ExitMultiLineIf(c *MultiLineIfContext)
+	// ExitSentence is called when exiting the sentence production.
+	ExitSentence(c *SentenceContext)
 
 	// ExitLoopStmt is called when exiting the loopStmt production.
 	ExitLoopStmt(c *LoopStmtContext)

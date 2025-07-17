@@ -32,6 +32,8 @@ type ParseResult struct {
 	Filename            string
 	Success             bool
 	Error               string
+	ParsingErrors       int
+	SemanticErrors      int
 	Duration            time.Duration
 	OriginalContent     string
 	PreprocessedContent string
@@ -128,15 +130,21 @@ func parseFileCobol(filepath string) ParseResult {
 	tree := p.Program()
 
 	_, semanticErrors := Analyze(tree)
-	if len(semanticErrors) > 0 {
-		for _, err := range semanticErrors {
-			parseErrorListener.Errors = append(parseErrorListener.Errors, fmt.Sprintf("semantic error line %d: %s", err.line, err.msg))
-		}
-		parseErrorListener.HasError = true
-	}
+	
+	result.ParsingErrors = len(lexErrorListener.Errors) + len(parseErrorListener.Errors)
+	result.SemanticErrors = len(semanticErrors)
 
-	if lexErrorListener.HasError || parseErrorListener.HasError {
-		allErrors := append(lexErrorListener.Errors, parseErrorListener.Errors...)
+	if result.ParsingErrors > 0 || result.SemanticErrors > 0 {
+		allErrors := make([]string, 0)
+		for _, err := range lexErrorListener.Errors {
+			allErrors = append(allErrors, err)
+		}
+		for _, err := range parseErrorListener.Errors {
+			allErrors = append(allErrors, err)
+		}
+		for _, err := range semanticErrors {
+			allErrors = append(allErrors, fmt.Sprintf("semantic error line %d: %s", err.line, err.msg))
+		}
 		result.Error = strings.Join(allErrors, "; ")
 	} else {
 		result.Success = true
@@ -172,6 +180,8 @@ func runSequential(files []string, isFailedRun bool, printPassed bool, hideVerbo
 	start := time.Now()
 	passed, failed := 0, 0
 	var totalParseTime time.Duration
+	totalParsingErrors := 0
+	totalSemanticErrors := 0
 
 	for i, file := range files {
 		result := parseFileCobol(file)
@@ -183,6 +193,8 @@ func runSequential(files []string, isFailedRun bool, printPassed bool, hideVerbo
 			}
 		} else {
 			failed++
+			totalParsingErrors += result.ParsingErrors
+			totalSemanticErrors += result.SemanticErrors
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, i+1, len(files), result.Filename, result.Error)
 			copyFailedTest(file, cfg.FailedDir)
 			if isFailedRun && !hideVerbose {
@@ -198,6 +210,7 @@ func runSequential(files []string, isFailedRun bool, printPassed bool, hideVerbo
 	fmt.Printf("Parse time: %.2f seconds\n", totalParseTime.Seconds())
 	fmt.Printf("Overhead: %.2f seconds\n", (totalTime - totalParseTime).Seconds())
 	fmt.Printf("Passed: %d, Failed: %d\n", passed, failed)
+	fmt.Printf("Parsing Errors: %d, Semantic Errors: %d\n", totalParsingErrors, totalSemanticErrors)
 	fmt.Printf("Files per second: %.1f\n", float64(len(files))/totalTime.Seconds())
 	fmt.Printf("Average per file: %.2fms\n", float64(totalTime.Nanoseconds())/float64(len(files))/1e6)
 }
@@ -236,6 +249,8 @@ func runParallel(files []string, isFailedRun bool, printPassed bool, hideVerbose
 	passed, failed := 0, 0
 	var totalParseTime time.Duration
 	processed := 0
+	totalParsingErrors := 0
+	totalSemanticErrors := 0
 
 	for result := range results {
 		processed++
@@ -247,6 +262,8 @@ func runParallel(files []string, isFailedRun bool, printPassed bool, hideVerbose
 			}
 		} else {
 			failed++
+			totalParsingErrors += result.ParsingErrors
+			totalSemanticErrors += result.SemanticErrors
 			fmt.Printf("%s[FAIL]%s (%d/%d) %s: %s\n", ColorRed, ColorReset, processed, len(files), result.Filename, result.Error)
 			copyFailedTest(result.OriginalFilePath, cfg.FailedDir)
 			if isFailedRun && !hideVerbose {
@@ -262,6 +279,7 @@ func runParallel(files []string, isFailedRun bool, printPassed bool, hideVerbose
 	fmt.Printf("Parse time: %.2f seconds (cumulative)\n", totalParseTime.Seconds())
 	fmt.Printf("Speedup: %.1fx\n", totalParseTime.Seconds()/totalTime.Seconds())
 	fmt.Printf("Passed: %d, Failed: %d\n", passed, failed)
+	fmt.Printf("Parsing Errors: %d, Semantic Errors: %d\n", totalParsingErrors, totalSemanticErrors)
 	fmt.Printf("Files per second: %.1f\n", float64(len(files))/totalTime.Seconds())
 	fmt.Printf("Average per file: %.2fms\n", float64(totalTime.Nanoseconds())/float64(len(files))/1e6)
 }

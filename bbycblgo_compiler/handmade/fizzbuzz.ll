@@ -25,7 +25,7 @@ entry:
   store i32 1, ptr %INT, align 4
   br label %loop.header
 
-loop.header:                                      ; preds = %ifcont10, %entry
+loop.header:                                      ; preds = %ifcont, %entry
   %0 = load i32, ptr %INT, align 4
   %loop.cond = icmp sle i32 %0, 100
   br i1 %loop.cond, label %loop.body, label %loop.exit
@@ -46,9 +46,6 @@ loop.exit:                                        ; preds = %loop.header
 
 then:                                             ; preds = %loop.body
   %4 = call i32 (ptr, ...) @printf(ptr @.str_format1, ptr @.str_lit0)
-  br label %ifcont
-
-ifcont:                                           ; preds = %then, %loop.body
   %5 = load i32, ptr %INT, align 4
   %quottmp1 = sdiv i32 %5, 5
   %remtmp2 = srem i32 %5, 5
@@ -59,32 +56,35 @@ ifcont:                                           ; preds = %then, %loop.body
   %cmptmp3 = icmp eq i32 %7, 0
   br i1 %cmptmp3, label %then4, label %ifcont5
 
-then4:                                            ; preds = %ifcont
-  %8 = call i32 (ptr, ...) @printf(ptr @.str_format3, ptr @.str_lit2)
-  br label %ifcont5
-
-ifcont5:                                          ; preds = %then4, %ifcont
-  %9 = load i32, ptr %INT, align 4
-  %quottmp6 = sdiv i32 %9, 15
-  %remtmp7 = srem i32 %9, 15
-  store i32 %quottmp6, ptr @TMP, align 4
-  store i32 %remtmp7, ptr @REM, align 4
-  %10 = load i32, ptr @REM, align 4
-  %11 = load i32, ptr @REM, align 4
-  %cmptmp8 = icmp eq i32 %11, 0
-  br i1 %cmptmp8, label %then9, label %else
-
-then9:                                            ; preds = %ifcont5
-  %12 = call i32 (ptr, ...) @printf(ptr @.str_format5, ptr @.str_lit4)
-  br label %ifcont10
-
-ifcont10:                                         ; preds = %else, %then9
-  %13 = load i32, ptr %INT, align 4
-  %next.val = add i32 %13, 1
+ifcont:                                           ; preds = %ifcont5, %loop.body
+  %8 = load i32, ptr %INT, align 4
+  %next.val = add i32 %8, 1
   store i32 %next.val, ptr %INT, align 4
   br label %loop.header
 
-else:                                             ; preds = %ifcont5
+then4:                                            ; preds = %then
+  %9 = call i32 (ptr, ...) @printf(ptr @.str_format3, ptr @.str_lit2)
+  %10 = load i32, ptr %INT, align 4
+  %quottmp6 = sdiv i32 %10, 15
+  %remtmp7 = srem i32 %10, 15
+  store i32 %quottmp6, ptr @TMP, align 4
+  store i32 %remtmp7, ptr @REM, align 4
+  %11 = load i32, ptr @REM, align 4
+  %12 = load i32, ptr @REM, align 4
+  %cmptmp8 = icmp eq i32 %12, 0
+  br i1 %cmptmp8, label %then9, label %else
+
+ifcont5:                                          ; preds = %ifcont10, %then
+  br label %ifcont
+
+then9:                                            ; preds = %then4
+  %13 = call i32 (ptr, ...) @printf(ptr @.str_format5, ptr @.str_lit4)
+  br label %ifcont10
+
+ifcont10:                                         ; preds = %else, %then9
+  br label %ifcont5
+
+else:                                             ; preds = %then4
   %14 = load i32, ptr %INT, align 4
   %15 = call i32 (ptr, ...) @printf(ptr @.str_format6, i32 %14)
   br label %ifcont10

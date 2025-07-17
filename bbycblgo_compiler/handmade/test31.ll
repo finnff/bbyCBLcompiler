@@ -16,8 +16,7 @@ define i32 @main() {
 entry:
   %0 = call i32 (ptr, ...) @scanf(ptr @.str_scanf_format0, ptr @INPUTVAL)
   %1 = load i32, ptr @INPUTVAL, align 4
-  %2 = load i32, ptr @INPUTVAL, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @.str_format1, i32 %2)
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_format1, i32 %1)
   ret i32 0
 }
 

@@ -6,8 +6,7 @@ target triple = "x86_64-redhat-linux-gnu"
 @.str_perform0 = private unnamed_addr constant [5 x i8] c"Loop\00", align 1
 @.str_format1 = private unnamed_addr constant [6 x i8] c"%.*s\0A\00", align 1
 @.str_lit2 = private unnamed_addr constant [5 x i8] c"Loop\00", align 1
-@.str_lit3 = private unnamed_addr constant [5 x i8] c"Loop\00", align 1
-@.str_format4 = private unnamed_addr constant [6 x i8] c"%.*s\0A\00", align 1
+@.str_format3 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -16,15 +15,15 @@ declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias
 
 define i32 @main() {
 entry:
-  br label %START
+  ret i32 0
 
-START:                                            ; preds = %LOOPPARA, %entry
+START:                                            ; preds = %LOOPPARA
   %perform.counter = alloca i32, align 4
   store i32 0, ptr %perform.counter, align 4
   br label %perform.header
 
 LOOPPARA:                                         ; No predecessors!
-  %0 = call i32 (ptr, ...) @printf(ptr @.str_format4, i32 4, ptr @.str_lit3)
+  %0 = call i32 (ptr, ...) @printf(ptr @.str_format3, ptr @.str_lit2)
   br label %START
 
 perform.header:                                   ; preds = %perform.body, %START

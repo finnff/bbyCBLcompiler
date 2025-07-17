@@ -1,0 +1,38 @@
+Parsing test34.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: SIGNALERROR
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        SignalEnable
+          SimpleId: HANDLER
+    Sentence
+      Statement
+        DivideStatement (INTO)
+          ExprList
+            Literal: 0
+          ExprList
+            Literal: 10
+          GivingClause
+            ExprList
+              Identifier: RES
+    Paragraph: STOP
+      Identifier (Single): STOP
+    Paragraph: HANDLER
+      Identifier (Single): HANDLER
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "Error handled"
+      Sentence
+        Statement
+          StopStatement
+[36m--- Symbol Table ---[0m
+
+[36m--------------------[0m
+

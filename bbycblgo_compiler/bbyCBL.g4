@@ -77,9 +77,14 @@ paragraph
     : identifier DOT sentence*
     ;
 
-sentence
-    : statement+ DOT DOT*
-    ;
+// sentence
+//     : statement+ DOT DOT*
+//     ;
+//
+//
+//
+
+
 statement
     : acceptStmt
     | addStmt
@@ -111,7 +116,7 @@ simpleId
     : IDENTIFIER
     | DESCRIPTION
     | PROGRAM_ID | AUTHOR | DATE_WRITTEN | DATE | DATE_UNDERSCORE
-    | ANY_DATE | ANY_DATE_UNDERSCORE
+    | ANY_DATE | ANY_DATE_UNDERSCORE |ELSE | DISPLAY 
     | HIGH_VALUES | LOW_VALUES | SPACE | SPACES
     | BASE | TRUE | FALSE | END | ADD | MOVE | TO | THEN 
     | INSTALLATION | SECURITY | DATE_COMPILED
@@ -170,10 +175,21 @@ divideStmt
 evaluateStmt     : EVALUATE evalSubject? (ALSO evalSubject)* whenClause+ (END_EVALUATE | END identifier?) ;
 givingClause     : GIVING exprList                                       ;
 gotoStmt         : GO TO exprList                                        ;
+
+
+
+
 ifStmt
-    : IF condition THEN statement (ELSE statement)?                    # singleLineIf
-    | IF condition THEN statement+ (ELSE statement+)? (END_IF | END)   # multiLineIf
+    : IF condition THEN statement+ (ELSE statement+)? (END_IF | END)?
     ;
+
+
+sentence
+    : statement+ DOT DOT*
+    ;
+
+
+
 loopStmt         : LOOP loopContent* END identifier?
     ;
 

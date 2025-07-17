@@ -1,0 +1,36 @@
+Parsing test35.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: PERFORMTHRU
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        PerformStatement
+          Identifier: PARA1
+          Identifier: PARA2
+    Paragraph: STOP
+      Identifier (Single): STOP
+    Paragraph: PARA1
+      Identifier (Single): PARA1
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "Start"
+      Sentence
+        Statement
+          NextSentenceStmt
+    Paragraph: PARA2
+      Identifier (Single): PARA2
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "End"
+[36m--- Symbol Table ---[0m
+
+[36m--------------------[0m
+

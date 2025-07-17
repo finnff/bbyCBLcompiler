@@ -72,10 +72,6 @@ func (v *BasebbyCBLVisitor) VisitParagraph(ctx *ParagraphContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitSentence(ctx *SentenceContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
 func (v *BasebbyCBLVisitor) VisitStatement(ctx *StatementContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -176,11 +172,11 @@ func (v *BasebbyCBLVisitor) VisitGotoStmt(ctx *GotoStmtContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitSingleLineIf(ctx *SingleLineIfContext) interface{} {
+func (v *BasebbyCBLVisitor) VisitIfStmt(ctx *IfStmtContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitMultiLineIf(ctx *MultiLineIfContext) interface{} {
+func (v *BasebbyCBLVisitor) VisitSentence(ctx *SentenceContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

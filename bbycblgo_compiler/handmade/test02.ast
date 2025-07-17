@@ -1,0 +1,35 @@
+Parsing test02.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+  [35mDataDivision[0m
+    DataEntry: StudentName
+      LevelNumber: 01
+      Identifier (Single): StudentName
+      PictureClause: XX
+        PicturePattern: XX
+    DataEntry: student_age
+      LevelNumber: 01
+      Identifier (Single): student_age
+      PictureClause: 99
+        PicturePattern: 99
+  [33mProcedureDivision[0m
+    Sentence
+      Statement
+        MoveStatement
+          ExprList
+            Literal: "AB"
+          ExprList
+            Identifier: studentname
+    Sentence
+      Statement
+        DisplayStatement
+          DisplayItem
+            Identifier: student_AGE
+[36m--- Symbol Table ---[0m
+  STUDENTNAME: &{name:STUDENTNAME level:1 picture:0x&{5858 %!x(bool=false) %!x(bool=false) %!x(bool=true) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+  STUDENT_AGE: &{name:STUDENT_AGE level:1 picture:0x&{3939 %!x(bool=true) %!x(bool=false) %!x(bool=false) 2} likeRef: occurs:0 initialized:false parent:0x0 children:[]}
+
+[36m--------------------[0m
+

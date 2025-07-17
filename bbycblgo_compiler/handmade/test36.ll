@@ -21,8 +21,7 @@ entry:
   %subtmp = sub i32 %0, 2
   store i32 %subtmp, ptr @A, align 4
   %1 = load i32, ptr @RES, align 4
-  %2 = load i32, ptr @RES, align 4
-  %3 = call i32 (ptr, ...) @printf(ptr @.str_format0, i32 %2)
+  %2 = call i32 (ptr, ...) @printf(ptr @.str_format0, i32 %1)
   ret i32 0
 }
 

@@ -5,13 +5,9 @@ target triple = "x86_64-redhat-linux-gnu"
 
 @VAL = global i32 0, align 4
 @.str_lit0 = private unnamed_addr constant [10 x i8] c"Odd prime\00", align 1
-@.str_format_lit1 = private unnamed_addr constant [5 x i8] c"%.*s\00", align 1
-@.str_lit2 = private unnamed_addr constant [10 x i8] c"Odd prime\00", align 1
-@.str_newline3 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
-@.str_lit4 = private unnamed_addr constant [6 x i8] c"Other\00", align 1
-@.str_format_lit5 = private unnamed_addr constant [5 x i8] c"%.*s\00", align 1
-@.str_lit6 = private unnamed_addr constant [6 x i8] c"Other\00", align 1
-@.str_newline7 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+@.str_format1 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
+@.str_lit2 = private unnamed_addr constant [6 x i8] c"Other\00", align 1
+@.str_format3 = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
 
 declare i32 @printf(ptr, ...)
 
@@ -28,16 +24,14 @@ entry:
   %3 = or i1 %cmptmp, %2
   %4 = icmp eq i32 %0, 7
   %5 = or i1 %3, %4
-  br i1 %5, label %then, label %ifcont
+  br i1 %5, label %then.sentence.scoped, label %ifcont.sentence.scoped
 
-then:                                             ; preds = %entry
-  %6 = call i32 (ptr, ...) @printf(ptr @.str_format_lit1, i32 9, ptr @.str_lit2)
-  %7 = call i32 (ptr, ...) @printf(ptr @.str_newline3)
-  br label %ifcont
+then.sentence.scoped:                             ; preds = %entry
+  %6 = call i32 (ptr, ...) @printf(ptr @.str_format1, ptr @.str_lit0)
+  br label %ifcont.sentence.scoped
 
-ifcont:                                           ; preds = %then, %entry
-  %8 = call i32 (ptr, ...) @printf(ptr @.str_format_lit5, i32 5, ptr @.str_lit6)
-  %9 = call i32 (ptr, ...) @printf(ptr @.str_newline7)
+ifcont.sentence.scoped:                           ; preds = %then.sentence.scoped, %entry
+  %7 = call i32 (ptr, ...) @printf(ptr @.str_format3, ptr @.str_lit2)
   ret i32 0
 }
 

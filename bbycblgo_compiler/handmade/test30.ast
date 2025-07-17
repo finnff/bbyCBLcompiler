@@ -1,0 +1,48 @@
+Parsing test30.baby
+
+[36m--- Abstract Syntax Tree ---[0m
+[36mProgram[0m
+  [34mIdentificationDivision[0m
+    IdentificationClause
+      PROGRAM-ID: ALTERGOTO
+  [33mProcedureDivision[0m
+    Paragraph: PATH
+      Identifier (Single): PATH
+      Sentence
+        Statement
+          GotoStatement
+            ExprList
+              Identifier: SKIP
+    Paragraph: MAIN
+      Identifier (Single): MAIN
+      Sentence
+        Statement
+          AlterStatement
+            Identifier (Single): PATH
+            Identifier (Single): DONE
+      Sentence
+        Statement
+          GotoStatement
+            ExprList
+              Identifier: PATH
+    Paragraph: SKIP
+      Identifier (Single): SKIP
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "Skipped"
+    Paragraph: DONE
+      Identifier (Single): DONE
+      Sentence
+        Statement
+          DisplayStatement
+            DisplayItem
+              Literal: "Altered"
+      Sentence
+        Statement
+          StopStatement
+[36m--- Symbol Table ---[0m
+
+[36m--------------------[0m
+
