@@ -209,6 +209,10 @@ func (c *CodeGenerator) VisitParagraph(ctx *parser.ParagraphContext) interface{}
 	if c.verbose {
 		fmt.Println("Visiting Paragraph")
 	}
+	name := strings.ToUpper(ctx.Identifier().GetText())
+	block := c.paragraphBlocks[name]              // guaranteed to exist
+	c.builder.SetInsertPointAtEnd(block)          // <--- ADDED
+
 	for _, sentence := range ctx.AllSentence() {
 		c.Visit(sentence)
 	}
@@ -347,24 +351,18 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 		c.Visit(paragraph)
 	}
 
-	// Final safety check - ensure the current block is terminated.
-	// This is crucial for cases where the last statement is a loop or if,
-	// which moves the builder to a new basic block.
-	currentBlock := c.builder.GetInsertBlock()
-	if !c.stopped && !currentBlock.IsNil() {
-		lastInstruction := currentBlock.LastInstruction()
-		if lastInstruction.IsNil() {
-			c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
-		} else {
-			isTerminator := !lastInstruction.IsAReturnInst().IsNil() ||
-				!lastInstruction.IsABranchInst().IsNil() ||
-				!lastInstruction.IsASwitchInst().IsNil() ||
-				!lastInstruction.IsAInvokeInst().IsNil() ||
-				!lastInstruction.IsAUnreachableInst().IsNil()
-
-			if !isTerminator {
-				c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 0, false))
-			}
+	// --- Final safety pass: close any dangling blocks in 'main'.
+	zero := llvm.ConstInt(c.context.Int32Type(), 0, false)
+	for bb := mainFunc.FirstBasicBlock(); !bb.IsNil(); bb = llvm.NextBasicBlock(bb) {
+		lastInstruction := bb.LastInstruction()
+		if lastInstruction.IsNil() || (!lastInstruction.IsAReturnInst().IsNil() ||
+			!lastInstruction.IsABranchInst().IsNil() ||
+			!lastInstruction.IsASwitchInst().IsNil() ||
+			!lastInstruction.IsAInvokeInst().IsNil() ||
+			!lastInstruction.IsAUnreachableInst().IsNil()) {
+			// If the block is empty or the last instruction is not a terminator, add a return.
+			c.builder.SetInsertPointAtEnd(bb)
+			c.builder.CreateRet(zero)
 		}
 	}
 
