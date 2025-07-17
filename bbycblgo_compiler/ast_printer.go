@@ -387,6 +387,16 @@ func (v *ASTPrinter) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
+func (v *ASTPrinter) VisitSingleLineIf(ctx *parser.SingleLineIfContext) interface{} {
+	fmt.Printf("%sSingleLineIfStatement\n", v.indent())
+	return v.VisitChildren(ctx)
+}
+
+func (v *ASTPrinter) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interface{} {
+	fmt.Printf("%sMultiLineIfStatement\n", v.indent())
+	return v.VisitChildren(ctx)
+}
+
 func (v *ASTPrinter) VisitEqualDelim(ctx *parser.EqualDelimContext) interface{} {
 	fmt.Printf("%sEqualDelim\n", v.indent())
 	v.Indentation++

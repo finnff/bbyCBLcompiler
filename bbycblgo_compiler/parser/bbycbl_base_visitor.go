@@ -176,7 +176,11 @@ func (v *BasebbyCBLVisitor) VisitGotoStmt(ctx *GotoStmtContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasebbyCBLVisitor) VisitIfStmt(ctx *IfStmtContext) interface{} {
+func (v *BasebbyCBLVisitor) VisitSingleLineIf(ctx *SingleLineIfContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BasebbyCBLVisitor) VisitMultiLineIf(ctx *MultiLineIfContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

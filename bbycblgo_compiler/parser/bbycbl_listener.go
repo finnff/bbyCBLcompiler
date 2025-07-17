@@ -134,8 +134,11 @@ type bbyCBLListener interface {
 	// EnterGotoStmt is called when entering the gotoStmt production.
 	EnterGotoStmt(c *GotoStmtContext)
 
-	// EnterIfStmt is called when entering the ifStmt production.
-	EnterIfStmt(c *IfStmtContext)
+	// EnterSingleLineIf is called when entering the singleLineIf production.
+	EnterSingleLineIf(c *SingleLineIfContext)
+
+	// EnterMultiLineIf is called when entering the multiLineIf production.
+	EnterMultiLineIf(c *MultiLineIfContext)
 
 	// EnterLoopStmt is called when entering the loopStmt production.
 	EnterLoopStmt(c *LoopStmtContext)
@@ -365,8 +368,11 @@ type bbyCBLListener interface {
 	// ExitGotoStmt is called when exiting the gotoStmt production.
 	ExitGotoStmt(c *GotoStmtContext)
 
-	// ExitIfStmt is called when exiting the ifStmt production.
-	ExitIfStmt(c *IfStmtContext)
+	// ExitSingleLineIf is called when exiting the singleLineIf production.
+	ExitSingleLineIf(c *SingleLineIfContext)
+
+	// ExitMultiLineIf is called when exiting the multiLineIf production.
+	ExitMultiLineIf(c *MultiLineIfContext)
 
 	// ExitLoopStmt is called when exiting the loopStmt production.
 	ExitLoopStmt(c *LoopStmtContext)

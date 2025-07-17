@@ -170,7 +170,10 @@ divideStmt
 evaluateStmt     : EVALUATE evalSubject? (ALSO evalSubject)* whenClause+ (END_EVALUATE | END identifier?) ;
 givingClause     : GIVING exprList                                       ;
 gotoStmt         : GO TO exprList                                        ;
-ifStmt           : IF condition THEN statement+ (ELSE statement+)? (END_IF | END)? ;
+ifStmt
+    : IF condition THEN statement (ELSE statement)?                    # singleLineIf
+    | IF condition THEN statement+ (ELSE statement+)? (END_IF | END)   # multiLineIf
+    ;
 loopStmt         : LOOP loopContent* END identifier?
     ;
 

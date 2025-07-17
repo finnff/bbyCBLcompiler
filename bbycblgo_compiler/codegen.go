@@ -33,21 +33,164 @@ type CodeGenerator struct {
 	stopped         bool
 	localVars       map[string]llvm.Value
 	paragraphBlocks map[string]llvm.BasicBlock
+	// New fields for ALTER (switch-based)
+	alterableGoTos           map[string]llvm.Value // Maps paragraph name to its global variable holding the current GO TO target ID (i32)
+	paragraphToID            map[string]int        // Maps paragraph name to its assigned integer ID
+	idToParagraph            map[int]string        // Maps integer ID back to paragraph name
+	collectedAlterStatements []AlterInfo
+	collectedGotoParagraphs  map[string]string
+}
+
+// AlterInfo holds information about an ALTER statement.
+type AlterInfo struct {
+	TargetParagraph string
+	NewTarget       string
+	Line            int
+}
+
+// AlterCollector visits the AST to collect ALTER statements.
+type AlterCollector struct {
+	*parser.BasebbyCBLVisitor
+	alterStatements []AlterInfo
+	// Map to store which paragraphs contain a GO TO statement
+	// and their initial target, to validate ALTER statements.
+	gotoParagraphs map[string]string
+}
+
+func (a *AlterCollector) Visit(tree antlr.ParseTree) interface{} {
+	return tree.Accept(a)
+}
+
+func (a *AlterCollector) VisitChildren(node antlr.RuleNode) interface{} {
+	for _, child := range node.GetChildren() {
+		child.(antlr.ParseTree).Accept(a)
+	}
+	return nil
+}
+
+// Override key visitor methods to ensure traversal
+func (a *AlterCollector) VisitProgram(ctx *parser.ProgramContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitProcedureDivision(ctx *parser.ProcedureDivisionContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitParagraph(ctx *parser.ParagraphContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitSentence(ctx *parser.SentenceContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitStatement(ctx *parser.StatementContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+// Add these methods to AlterCollector to handle nested structures
+func (a *AlterCollector) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+//	func (a *AlterCollector) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
+//		return a.VisitChildren(ctx)
+//	}
+func (a *AlterCollector) VisitSingleLineIf(ctx *parser.SingleLineIfContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+func (a *AlterCollector) VisitLoopContent(ctx *parser.LoopContentContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+// Add any other intermediate context types that might contain statements
+func (a *AlterCollector) VisitCondition(ctx *parser.ConditionContext) interface{} {
+	return a.VisitChildren(ctx)
+}
+
+// NewAlterCollector creates a new AlterCollector.
+func NewAlterCollector() *AlterCollector {
+	return &AlterCollector{
+		BasebbyCBLVisitor: &parser.BasebbyCBLVisitor{},
+		alterStatements:   []AlterInfo{},
+		gotoParagraphs:    make(map[string]string),
+	}
+}
+
+// VisitAlterStmt collects ALTER statements.
+func (a *AlterCollector) VisitAlterStmt(ctx *parser.AlterStmtContext) interface{} {
+	targetName := strings.ToUpper(ctx.Identifier(0).GetText())
+	newName := strings.ToUpper(ctx.Identifier(1).GetText())
+	a.alterStatements = append(a.alterStatements, AlterInfo{
+		TargetParagraph: targetName,
+		NewTarget:       newName,
+		Line:            ctx.GetStart().GetLine(),
+	})
+	return nil
+}
+
+// VisitGotoStmt collects information about paragraphs containing GO TO statements.
+func (a *AlterCollector) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
+	// The parent of a GO TO statement is typically a Sentence, and its parent is a Paragraph.
+	// We need to find the paragraph containing this GO TO.
+	parent := ctx.GetParent()
+	for parent != nil && !strings.HasSuffix(fmt.Sprintf("%T", parent), "*parser.ParagraphContext") {
+		parent = parent.GetParent()
+	}
+
+	if paragraphCtx, ok := parent.(*parser.ParagraphContext); ok {
+		paragraphName := strings.ToUpper(paragraphCtx.Identifier().GetText())
+		// Store the initial target of the GO TO in this paragraph.
+		// For simplicity, we assume only one GO TO per alterable paragraph.
+		a.gotoParagraphs[paragraphName] = strings.ToUpper(ctx.ExprList().AllExpr()[0].GetText())
+
+	}
+	return nil
+}
+
+// CollectAlterInfo performs a pre-analysis pass to gather ALTER statements and GO TO info.
+func CollectAlterInfo(tree antlr.ParseTree) ([]AlterInfo, map[string]string) {
+	collector := NewAlterCollector()
+	tree.Accept(collector) // Use Accept instead of Walk
+
+	// Debug output
+	fmt.Printf("Collected %d ALTER statements\n", len(collector.alterStatements))
+	for _, alter := range collector.alterStatements {
+		fmt.Printf("  ALTER %s TO %s\n", alter.TargetParagraph, alter.NewTarget)
+	}
+
+	fmt.Printf("Found %d paragraphs with GO TO statements\n", len(collector.gotoParagraphs))
+	for para, target := range collector.gotoParagraphs {
+		fmt.Printf("  %s contains GO TO %s\n", para, target)
+	}
+
+	return collector.alterStatements, collector.gotoParagraphs
 }
 
 // NewCodeGenerator creates a new code generator.
-func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename string) *CodeGenerator {
+func NewCodeGenerator(symbolTable *SymbolTable, verbose bool, sourceFilename string, alterStatements []AlterInfo, gotoParagraphs map[string]string) *CodeGenerator {
 	return &CodeGenerator{
-		BasebbyCBLVisitor: &parser.BasebbyCBLVisitor{},
-		symbolTable:       symbolTable,
-		errors:            []SemanticError{},
-		strCounter:        0,
-		tempRegCounter:    0,
-		verbose:           verbose,
-		sourceFilename:    sourceFilename,
-		stopped:           false,
-		localVars:         make(map[string]llvm.Value),
-		paragraphBlocks:   make(map[string]llvm.BasicBlock),
+		BasebbyCBLVisitor:        &parser.BasebbyCBLVisitor{},
+		symbolTable:              symbolTable,
+		errors:                   []SemanticError{},
+		strCounter:               0,
+		tempRegCounter:           0,
+		verbose:                  verbose,
+		sourceFilename:           sourceFilename,
+		stopped:                  false,
+		localVars:                make(map[string]llvm.Value),
+		paragraphBlocks:          make(map[string]llvm.BasicBlock),
+		alterableGoTos:           make(map[string]llvm.Value),
+		paragraphToID:            make(map[string]int),
+		idToParagraph:            make(map[int]string),
+		collectedAlterStatements: alterStatements,
+		collectedGotoParagraphs:  gotoParagraphs,
 	}
 }
 
@@ -66,9 +209,9 @@ func Generate(tree antlr.ParseTree, symbolTable *SymbolTable, verbose bool, sour
 		llvm.InitializeNativeAsmPrinter()
 	})
 
-	codegen := NewCodeGenerator(symbolTable, verbose, sourceFilename)
+	alterStatements, gotoParagraphs := CollectAlterInfo(tree)
+	codegen := NewCodeGenerator(symbolTable, verbose, sourceFilename, alterStatements, gotoParagraphs)
 	codegen.context = llvm.NewContext()
-	defer codegen.context.Dispose()
 
 	var target llvm.Target
 	var err error
@@ -141,14 +284,14 @@ func (c *CodeGenerator) checkNil(val llvm.Value, msg string, line int) bool {
 
 func (c *CodeGenerator) blockHasTerminator(bb llvm.BasicBlock) bool {
 	li := bb.LastInstruction()
-	if li.IsNil() {                     // block is still open
+	if li.IsNil() { // block is still open
 		return false
 	}
-	return !li.IsAReturnInst().IsNil()  ||
-		   !li.IsABranchInst().IsNil()  ||
-		   !li.IsASwitchInst().IsNil()  ||
-		   !li.IsAInvokeInst().IsNil()  ||
-		   !li.IsAUnreachableInst().IsNil()
+	return !li.IsAReturnInst().IsNil() ||
+		!li.IsABranchInst().IsNil() ||
+		!li.IsASwitchInst().IsNil() ||
+		!li.IsAInvokeInst().IsNil() ||
+		!li.IsAUnreachableInst().IsNil()
 }
 
 func (c *CodeGenerator) getActualPicture(field *FieldSymbol) *PictureType {
@@ -222,8 +365,8 @@ func (c *CodeGenerator) VisitParagraph(ctx *parser.ParagraphContext) interface{}
 		fmt.Println("Visiting Paragraph")
 	}
 	name := strings.ToUpper(ctx.Identifier().GetText())
-	block := c.paragraphBlocks[name]              // guaranteed to exist
-	c.builder.SetInsertPointAtEnd(block)          // <--- ADDED
+	block := c.paragraphBlocks[name]     // guaranteed to exist
+	c.builder.SetInsertPointAtEnd(block) // <--- ADDED
 
 	for _, sentence := range ctx.AllSentence() {
 		c.Visit(sentence)
@@ -292,9 +435,28 @@ func (c *CodeGenerator) VisitDataDivision(ctx *parser.DataDivisionContext) inter
 
 func (c *CodeGenerator) VisitAlterStmt(ctx *parser.AlterStmtContext) interface{} {
 	if c.verbose {
-		fmt.Println("Visiting Alter Stmt (temporarily disabled)")
+		fmt.Println("Visiting Alter Stmt")
 	}
-	c.addError(fmt.Sprintf("ALTER statement is not fully implemented and its effects are ignored. Line: %d", ctx.GetStart().GetLine()), ctx.GetStart().GetLine())
+
+	targetParagraph := strings.ToUpper(ctx.Identifier(0).GetText())
+	newTarget := strings.ToUpper(ctx.Identifier(1).GetText())
+
+	// Get the global variable that holds the GO TO target ID for targetParagraph
+	if globalGoToIDVar, ok := c.alterableGoTos[targetParagraph]; ok {
+		// Get the ID for the new target
+		if newTargetID, idOk := c.paragraphToID[newTarget]; idOk {
+			// Store the new target ID into the global variable
+			c.builder.CreateStore(llvm.ConstInt(c.context.Int32Type(), uint64(newTargetID), false), globalGoToIDVar)
+			if c.verbose {
+				fmt.Printf("ALTERed GO TO in %s to point to ID %d (%s)\n", targetParagraph, newTargetID, newTarget)
+			}
+		} else {
+			c.addError(fmt.Sprintf("ALTER new target '%s' not found", newTarget), ctx.GetStart().GetLine())
+		}
+	} else {
+		c.addError(fmt.Sprintf("ALTER target paragraph '%s' is not an alterable GO TO", targetParagraph), ctx.GetStart().GetLine())
+	}
+
 	return nil
 }
 
@@ -338,13 +500,46 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	c.builder.SetInsertPointAtEnd(c.mainEntryBlock)
 
 	// CRITICAL FIX: First pass - create all paragraph blocks before processing any statements
+	paragraphID := 0
 	for _, paragraph := range ctx.AllParagraph() {
 		paragraphName := strings.ToUpper(paragraph.Identifier().GetText())
 		paragraphBlock := c.context.AddBasicBlock(mainFunc, paragraphName)
 		c.paragraphBlocks[paragraphName] = paragraphBlock
+		c.paragraphToID[paragraphName] = paragraphID
+		c.idToParagraph[paragraphID] = paragraphName
+		paragraphID++
 		if c.verbose {
-			fmt.Printf("Pre-created paragraph block: %s\n", paragraphName)
+			fmt.Printf("Pre-created paragraph block: %s (ID: %d)\n", paragraphName, paragraphID-1)
 		}
+	}
+
+	// Initialize global variables for alterable GO TO targets (switch-based)
+	for _, alterInfo := range c.collectedAlterStatements {
+		// Check if the target paragraph actually contains a GO TO statement
+		if initialTargetName, ok := c.collectedGotoParagraphs[alterInfo.TargetParagraph]; ok {
+			// Get the initial target ID
+			if initialTargetID, idOk := c.paragraphToID[initialTargetName]; idOk {
+				// Create a global variable to hold the current target ID of the GO TO
+				globalGoToIDVar := llvm.AddGlobal(c.module, c.context.Int32Type(), "goto_target_id_"+alterInfo.TargetParagraph)
+				// Initialize it with the ID of the initial target
+				globalGoToIDVar.SetInitializer(llvm.ConstInt(c.context.Int32Type(), uint64(initialTargetID), false))
+				globalGoToIDVar.SetLinkage(llvm.InternalLinkage)
+				// Store this global variable in our map for later lookup
+				c.alterableGoTos[alterInfo.TargetParagraph] = globalGoToIDVar
+				if c.verbose {
+					fmt.Printf("Created alterable GO TO global for %s, initial target ID %d\n", alterInfo.TargetParagraph, initialTargetID)
+				}
+			} else {
+				c.addError(fmt.Sprintf("ALTER target '%s' refers to an unknown initial GO TO target '%s'", alterInfo.TargetParagraph, initialTargetName), alterInfo.Line)
+			}
+		} else {
+			c.addError(fmt.Sprintf("ALTER target paragraph '%s' does not contain a GO TO statement", alterInfo.TargetParagraph), alterInfo.Line)
+		}
+	}
+
+	// Now visit all paragraphs to generate their content
+	for _, paragraph := range ctx.AllParagraph() {
+		c.Visit(paragraph)
 	}
 
 	// Visit sentences directly under Procedure Division (if any)
@@ -356,11 +551,6 @@ func (c *CodeGenerator) VisitProcedureDivision(ctx *parser.ProcedureDivisionCont
 	}
 	if c.verbose {
 		fmt.Printf("Main entry block after visiting sentences: %v\n", c.mainEntryBlock.LastInstruction().IsNil())
-	}
-
-	// Now visit all paragraphs to generate their content
-	for _, paragraph := range ctx.AllParagraph() {
-		c.Visit(paragraph)
 	}
 
 	// --- Final safety pass: close any dangling blocks in 'main'.
@@ -1002,7 +1192,31 @@ func (c *CodeGenerator) VisitGotoStmt(ctx *parser.GotoStmtContext) interface{} {
 		fmt.Println("Visiting Goto Stmt")
 	}
 	targetName := strings.ToUpper(ctx.ExprList().GetText())
-	if block, ok := c.paragraphBlocks[targetName]; ok {
+	if globalGoToIDVar, isAlterable := c.alterableGoTos[targetName]; isAlterable {
+		// This GO TO is alterable, load its current target ID from the global variable
+		currentGoToTargetID := c.builder.CreateLoad(c.context.Int32Type(), globalGoToIDVar, "current_goto_target_id")
+
+		// Create a default block for the switch statement (error case)
+		currentFunc := c.builder.GetInsertBlock().Parent()
+		defaultBlock := c.context.AddBasicBlock(currentFunc, "goto.default")
+
+		// Create the switch instruction at the current insertion point
+		switchInst := c.builder.CreateSwitch(currentGoToTargetID, defaultBlock, len(c.idToParagraph))
+
+		// Add cases for all possible paragraph targets
+		for id, paragraphName := range c.idToParagraph {
+			if targetBlock, ok := c.paragraphBlocks[paragraphName]; ok {
+				switchInst.AddCase(llvm.ConstInt(c.context.Int32Type(), uint64(id), false), targetBlock)
+			}
+		}
+
+		// Set insert point to the default block and add a terminator
+		c.builder.SetInsertPointAtEnd(defaultBlock)
+		c.builder.CreateRet(llvm.ConstInt(c.context.Int32Type(), 1, false)) // Return with error code
+
+		// After the switch, the current block is terminated, so set stopped to true
+		c.stopped = true
+	} else if block, ok := c.paragraphBlocks[targetName]; ok {
 		c.builder.CreateBr(block)
 		c.stopped = true
 	} else {
@@ -1064,7 +1278,7 @@ func (c *CodeGenerator) VisitPerformStmt(ctx *parser.PerformStmtContext) interfa
 		// Exit
 		c.builder.SetInsertPointAtEnd(loopExit)
 
-	} else {                     // simple PERFORM
+	} else { // simple PERFORM
 		targetName := strings.ToUpper(ctx.Expr(0).GetText())
 		if block, ok := c.paragraphBlocks[targetName]; ok {
 			c.builder.CreateBr(block)
@@ -1076,7 +1290,7 @@ func (c *CodeGenerator) VisitPerformStmt(ctx *parser.PerformStmtContext) interfa
 			c.builder.SetInsertPointAtEnd(cont)
 		} else {
 			c.addError(fmt.Sprintf("Paragraph '%s' not found for PERFORM", targetName),
-					   ctx.GetStart().GetLine())
+				ctx.GetStart().GetLine())
 		}
 	}
 
@@ -1092,9 +1306,9 @@ func (c *CodeGenerator) VisitStopStmt(ctx *parser.StopStmtContext) interface{} {
 	return nil
 }
 
-func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
+func (c *CodeGenerator) VisitSingleLineIf(ctx *parser.SingleLineIfContext) interface{} {
 	if c.verbose {
-		fmt.Println("Visiting If Stmt")
+		fmt.Println("Visiting Single Line If Stmt")
 	}
 
 	conditionVal := c.Visit(ctx.Condition())
@@ -1120,10 +1334,58 @@ func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 
 	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
 
-	// --- Then block ---
+	// --- Then block (exactly one statement) ---
+	c.builder.SetInsertPointAtEnd(thenBlock)
+	c.Visit(ctx.Statement(0)) // First statement after THEN
+	if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
+		c.builder.CreateBr(mergeBlock)
+	}
+
+	// --- Else block (exactly one statement if present) ---
+	if hasElse {
+		c.builder.SetInsertPointAtEnd(elseBlock)
+		c.Visit(ctx.Statement(1)) // Statement after ELSE
+		if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
+			c.builder.CreateBr(mergeBlock)
+		}
+	}
+
+	c.builder.SetInsertPointAtEnd(mergeBlock)
+	return nil
+}
+
+func (c *CodeGenerator) VisitMultiLineIf(ctx *parser.MultiLineIfContext) interface{} {
+	if c.verbose {
+		fmt.Println("Visiting Multi Line If Stmt")
+	}
+
+	conditionVal := c.Visit(ctx.Condition())
+	if conditionVal == nil {
+		c.addError("condition expression is nil", ctx.GetStart().GetLine())
+		return nil
+	}
+	condition, ok := conditionVal.(llvm.Value)
+	if !ok || condition.IsNil() {
+		c.addError("condition is not a valid llvm value", ctx.GetStart().GetLine())
+		return nil
+	}
+
+	startFunc := c.builder.GetInsertBlock().Parent()
+	thenBlock := c.context.AddBasicBlock(startFunc, "then")
+	mergeBlock := c.context.AddBasicBlock(startFunc, "ifcont")
+	elseBlock := mergeBlock
+
+	hasElse := ctx.ELSE() != nil
+	if hasElse {
+		elseBlock = c.context.AddBasicBlock(startFunc, "else")
+	}
+
+	c.builder.CreateCondBr(condition, thenBlock, elseBlock)
+
+	// --- Then block (multiple statements) ---
 	c.builder.SetInsertPointAtEnd(thenBlock)
 
-	// Correctly separate THEN and ELSE statements
+	// For multi-line IF, we need to separate THEN and ELSE statements
 	var thenStmts, elseStmts []parser.IStatementContext
 	if hasElse {
 		elseTokenIndex := ctx.ELSE().GetSymbol().GetTokenIndex()
@@ -1141,25 +1403,22 @@ func (c *CodeGenerator) VisitIfStmt(ctx *parser.IfStmtContext) interface{} {
 	for _, stmt := range thenStmts {
 		c.Visit(stmt)
 	}
-	if c.builder.GetInsertBlock().LastInstruction().IsNil() ||
-		c.builder.GetInsertBlock().LastInstruction().IsAReturnInst().IsNil() {
+	if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
 		c.builder.CreateBr(mergeBlock)
 	}
 
-	// --- Else block ---
+	// --- Else block (multiple statements if present) ---
 	if hasElse {
 		c.builder.SetInsertPointAtEnd(elseBlock)
 		for _, stmt := range elseStmts {
 			c.Visit(stmt)
 		}
-		if c.builder.GetInsertBlock().LastInstruction().IsNil() ||
-			c.builder.GetInsertBlock().LastInstruction().IsAReturnInst().IsNil() {
+		if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
 			c.builder.CreateBr(mergeBlock)
 		}
 	}
 
 	c.builder.SetInsertPointAtEnd(mergeBlock)
-
 	return nil
 }
 
@@ -1589,19 +1848,43 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 				c.localVars[strings.ToUpper(counterName)] = counterPtr
 
 				// Get start, end, and step values
-				startVal := llvm.ConstInt(c.context.Int32Type(), 1, true) // Default start is 1
-				if len(varying.AllExpr()) > 0 {
+				startVal := llvm.ConstInt(c.context.Int32Type(), 1, false)      // Default start is 1 (COBOL rule)
+				limit = llvm.ConstInt(c.context.Int32Type(), 2147483647, false) // Default limit is max int (iterate forever)
+				step = llvm.ConstInt(c.context.Int32Type(), 1, false)           // Default step is 1
+
+				// Parse FROM, TO, BY clauses
+				// VARYING (qualifiedId | identifierSegment)? (FROM expr)? (TO expr)? (BY expr)?
+				// The ANTLR grammar defines varyingClause as having optional FROM, TO, BY expressions.
+				// We need to check the number of expressions and their order.
+				// expr(0) is FROM, expr(1) is TO, expr(2) is BY
+
+				if varying.FROM() != nil && len(varying.AllExpr()) > 0 {
 					startVal = c.Visit(varying.Expr(0)).(llvm.Value)
 				}
 
-				limit = llvm.ConstInt(c.context.Int32Type(), 2147483647, true) // Default limit is max int
-				if len(varying.AllExpr()) > 1 {
-					limit = c.Visit(varying.Expr(1)).(llvm.Value)
+				if varying.TO() != nil {
+					// Find the TO expression. It's either expr(0) if no FROM, or expr(1) if FROM is present.
+					toExprIndex := 0
+					if varying.FROM() != nil {
+						toExprIndex = 1
+					}
+					if len(varying.AllExpr()) > toExprIndex {
+						limit = c.Visit(varying.Expr(toExprIndex)).(llvm.Value)
+					}
 				}
 
-				step = llvm.ConstInt(c.context.Int32Type(), 1, true) // Default step is 1
-				if len(varying.AllExpr()) > 2 {
-					step = c.Visit(varying.Expr(2)).(llvm.Value)
+				if varying.BY() != nil {
+					// Find the BY expression. Its index depends on FROM and TO.
+					byExprIndex := 0
+					if varying.FROM() != nil {
+						byExprIndex++
+					}
+					if varying.TO() != nil {
+						byExprIndex++
+					}
+					if len(varying.AllExpr()) > byExprIndex {
+						step = c.Visit(varying.Expr(byExprIndex)).(llvm.Value)
+					}
 				}
 
 				c.builder.CreateStore(startVal, counterPtr)
@@ -1658,12 +1941,21 @@ func (c *CodeGenerator) VisitLoopStmt(ctx *parser.LoopStmtContext) interface{} {
 		c.builder.CreateStore(nextVal, counterPtr)
 	}
 
-	c.builder.CreateBr(loopHeader)
+	// -- end-of-body back edge --
+	if !c.blockHasTerminator(c.builder.GetInsertBlock()) {
+		c.builder.CreateBr(loopHeader)
+	}
+
+	// Set insert point to loopExit before adding branch to after
 	c.builder.SetInsertPointAtEnd(loopExit)
 
 	// ---- ensure loop exit is terminated and control continues ----
-	after := c.context.AddBasicBlock(startFunc, "loop.after")
-	c.builder.CreateBr(after)
+	after := c.context.AddBasicBlock(startFunc, "loop.after") // Declare 'after' here
+
+	// -- after loop.exit --
+	if !c.blockHasTerminator(loopExit) { // This check should be on loopExit, not c.builder.GetInsertBlock()
+		c.builder.CreateBr(after)
+	}
 	c.builder.SetInsertPointAtEnd(after)
 
 	if hasVarying {
@@ -1687,4 +1979,3 @@ func (c *CodeGenerator) VisitSignalStmt(ctx *parser.SignalStmtContext) interface
 	// Placeholder implementation
 	return nil
 }
-
